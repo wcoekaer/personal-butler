@@ -3105,11 +3105,17 @@ async def list_devices() -> None:
     from pyatv.const import Protocol
 
     confs = await pyatv.scan(asyncio.get_running_loop(), timeout=8)
+    creds = load_airplay_credentials()
     for c in sorted(confs, key=lambda c: c.name.lower()):
         raop = c.get_service(Protocol.RAOP)
         ok = raop is not None and raop.pairing.name in ("NotNeeded", "Optional")
-        print("%-28s %-16s %-22s %s" % (c.name, c.address, c.device_info.model_str,
-                                        "streamable" if ok else "needs pairing / unsupported"))
+        if ok:
+            state = "streamable"
+        elif raop is not None and (c.identifier in creds or c.name in creds):
+            state = "streamable (paired with jarvis)"
+        else:
+            state = "needs pairing (jarvis pair) / unsupported"
+        print("%-28s %-16s %-22s %s" % (c.name, c.address, c.device_info.model_str, state))
 
 
 if __name__ == "__main__":

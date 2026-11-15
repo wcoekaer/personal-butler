@@ -668,21 +668,27 @@ class EcoFlow(Feed):
             "chg_min": q.get("ems.chgRemainTime"), "dsg_min": q.get("ems.dsgRemainTime"),
             "limit": q.get("ems.maxChargeSoc"), "ac_charge_w": q.get("inv.cfgSlowChgWatts"),
             "temp": q.get("bmsMaster.temp"),
-            "errors": {k: q[k] for k in self.ERROR_KEYS if q.get(k)},
             "ts": dt.datetime.now().isoformat(timespec="seconds"),
         }
         prev = self.state.get("current") or {}
+        errors, acked = self._faults(q, prev)
+        cur["errors"], cur["acknowledged"] = errors, acked
         # AC input lost while plugged in (breaker trip, unplugged) / restored
         was_ac = (prev.get("ac_volts") or 0) > 80
         if prev and was_ac and ac_volts < 20:
             self.emit({"kind": "ecoflow_ac_lost", "device_name": name, "soc": str(cur["soc"])})
         elif prev and not was_ac and ac_volts > 80:
             self.emit({"kind": "ecoflow_ac_restored", "device_name": name, "soc": str(cur["soc"])})
-        # new fault codes
-        new_faults = {k: v for k, v in cur["errors"].items() if prev.get("errors", {}).get(k) != v}
+        # fault codes: announced once per (field, code); re-armed once the field reads 0 again
+        alerted = self.state.get("fault_alerted")
+        if alerted is None:  # first run with this state: don't re-announce what was already reported
+            alerted = dict(prev.get("errors") or {})
+        new_faults = {k: v for k, v in errors.items() if alerted.get(k) != v}
         if new_faults:
             self.emit({"kind": "ecoflow_fault", "device_name": name,
                        "detail": ", ".join("%s %s" % kv for kv in sorted(new_faults.items()))})
+        active = dict(errors, **acked)
+        self.state["fault_alerted"] = {k: v for k, v in dict(alerted, **new_faults).items() if k in active}
         # system charge thresholds, once per crossing, re-armed 3 points above
         fired = self.state.setdefault("fired", [])
         soc = cur["soc"] or 0
@@ -693,6 +699,35 @@ class EcoFlow(Feed):
                 break
         self.state["fired"] = [th for th in fired if soc <= th + 3]
         self.state["current"] = cur
+
+    FAULT_HOLD_SECONDS = 1800
+
+    def _faults(self, q: dict, prev: dict):
+        """Current fault codes as (unacknowledged, acknowledged) dicts of field -> code.
+
+        The extra batteries' fields drop in and out of quota/all from one poll to the
+        next, so a missing/null field keeps its last code for FAULT_HOLD_SECONDS; only
+        an explicit 0 clears a fault. Codes listed under feeds.ecoflow.acknowledged_faults
+        (field: code) are kept out of alerts, briefings and the HUD."""
+        now = dt.datetime.now().timestamp()
+        seen = self.state.setdefault("fault_seen", {})
+        last = dict(prev.get("errors") or {}, **(prev.get("acknowledged") or {}))
+        codes = {}
+        for k in self.ERROR_KEYS:
+            v = q.get(k)
+            if v is None:
+                if last.get(k) and now - seen.get(k, 0) <= self.FAULT_HOLD_SECONDS:
+                    codes[k] = last[k]
+                continue
+            seen[k] = now
+            if v:
+                codes[k] = v
+        for k in list(seen):
+            if k not in codes:
+                seen.pop(k, None)
+        ack = {str(k): v for k, v in (self.cfg.get("acknowledged_faults") or {}).items()}
+        acked = {k: v for k, v in codes.items() if str(ack.get(k)) == str(v)}
+        return {k: v for k, v in codes.items() if k not in acked}, acked
 
     def lines(self, now):
         c = self.state.get("current")

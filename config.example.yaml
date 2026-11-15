@@ -244,6 +244,8 @@ feeds:
     name: DELTA Pro
     poll_seconds: 60
     thresholds: [30, 15]       # system charge %, announced once per crossing
+    # acknowledged_faults:     # field: code — a latched code you've checked; kept out of
+    #   bmsMaster.errCode: 23  # alerts, briefings and the HUD (a different code still alerts)
   rain_nowcast:                # OpenWeather One Call minute-by-minute rain (OPENWEATHER_API_KEY)
     poll_seconds: 600          # ~144 calls/day; keep the OpenWeather daily limit at 1,000
     lead_minutes: 30           # announce rain due within this many minutes

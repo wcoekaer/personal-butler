@@ -1324,6 +1324,7 @@ def render_prompt(template: str, now: dt.datetime, cfg: dict, facts=None) -> str
         "drones": drones or "(not available)",
         "traffic": (TRAFFIC.summary() if TRAFFIC else "") or "(not available)",
         "forecast": "\n".join(FEEDS["forecast"].lines(now)) if "forecast" in FEEDS else "(not available)",
+        "portable_power": "\n".join(FEEDS["ecoflow"].lines(now)) if "ecoflow" in FEEDS else "(not available)",
         "hazards": feed_lines(["weather_alerts", "rain_nowcast", "earthquakes", "wildfires", "outdoor_air"], now, {
             "rain_nowcast": "Rain in the next hour",
             "weather_alerts": "National Weather Service alerts for the house",

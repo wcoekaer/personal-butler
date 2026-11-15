@@ -239,6 +239,11 @@ feeds:
     poll_seconds: 3600
   weather_alerts:              # National Weather Service alerts for the house's exact point
     poll_seconds: 300
+  ecoflow:                     # EcoFlow power station via the EcoFlow Developer API
+    sn: XXXXXXXXXXXXXXX                     # device serial (EcoFlow app > device > settings)
+    name: DELTA Pro
+    poll_seconds: 60
+    thresholds: [30, 15]       # system charge %, announced once per crossing
   rain_nowcast:                # OpenWeather One Call minute-by-minute rain (OPENWEATHER_API_KEY)
     poll_seconds: 600          # ~144 calls/day; keep the OpenWeather daily limit at 1,000
     lead_minutes: 30           # announce rain due within this many minutes
@@ -451,6 +456,27 @@ alerts:
     cooldown_minutes: 30
     messages:
       - "The {sensor} drone sensor is back online."
+  # EcoFlow power station (see feeds.ecoflow)
+  - name: ecoflow-ac-lost
+    kind: ecoflow_ac_lost
+    cooldown_minutes: 5
+    messages:
+      - "Pardon the interruption. The {device} has lost AC input power and is now running on its battery, at {soc} percent. The outlet's breaker may have tripped."
+  - name: ecoflow-ac-restored
+    kind: ecoflow_ac_restored
+    cooldown_minutes: 5
+    messages:
+      - "The {device} has AC input power again."
+  - name: ecoflow-fault
+    kind: ecoflow_fault
+    cooldown_minutes: 30
+    messages:
+      - "A word of caution, sir: the {device} is reporting a fault, {detail}."
+  - name: ecoflow-low
+    kind: ecoflow_low
+    cooldown_minutes: 0
+    messages:
+      - "The {device} is down to {soc} percent."
   - name: wan-offline
     kind: wan_offline
     cooldown_minutes: 2
@@ -566,6 +592,11 @@ prompt: |
   {energy_today}
   </energy>
 
+  Portable power station (EcoFlow):
+  <portable_power>
+  {portable_power}
+  </portable_power>
+
   Traffic in San Mateo County (live):
   <traffic>
   {traffic}
@@ -658,6 +689,10 @@ prompt: |
      PM2.5 is above 35. Airspace: mention a flight restriction covering or
      near the house (it matters for drone flights) and any low aircraft or
      circling helicopter not yet covered. Say nothing about these otherwise.
+     Portable power station: mention it only when noteworthy: a fault, not
+     on AC power when it was plugged in before, below 30 percent, or charging
+     finished; in the first and last updates of the day, give its charge in
+     one short phrase.
      Mention other values only if noteworthy: a HomeKit lock that is
      unlocked after 9 PM or before 6 AM, low vehicle or battery charge, an
      equipment fault, low sensor or HomeKit device batteries (by name, at most

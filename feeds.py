@@ -612,11 +612,121 @@ class RainNowcast(Feed):
         return ["- No rain expected in the next hour (OpenWeather nowcast)"]
 
 
+# --------------------------------------------------------------------------- EcoFlow portable power
+
+
+class EcoFlow(Feed):
+    """An EcoFlow power station (e.g. DELTA Pro + extra batteries) via the
+    EcoFlow Developer API (ECOFLOW_ACCESS_KEY / ECOFLOW_SECRET_KEY): one signed
+    GET of all values per poll. The device's own MQTT push is ~5 messages a
+    second; a once-a-minute poll is plenty for briefings and alerts.
+
+    Events: AC input lost / restored (e.g. the outlet's breaker tripped), any
+    fault code, system charge crossing the low thresholds."""
+
+    name = "ecoflow"
+    BASE = "https://api.ecoflow.com"
+    ERROR_KEYS = ("pd.errCode", "inv.errCode", "bmsMaster.errCode", "mppt.faultCode",
+                  "bmsSlave1.errCode", "bmsSlave2.errCode")
+
+    def _signed_headers(self, params: dict) -> dict:
+        import hashlib
+        import hmac
+        import random
+        import time as _time
+
+        ak, sk = os.environ["ECOFLOW_ACCESS_KEY"], os.environ["ECOFLOW_SECRET_KEY"]
+        nonce, ts = str(random.randint(100000, 999999)), str(int(_time.time() * 1000))
+        query = "&".join("%s=%s" % (k, params[k]) for k in sorted(params))
+        msg = (query + "&" if query else "") + "accessKey=%s&nonce=%s&timestamp=%s" % (ak, nonce, ts)
+        return {"accessKey": ak, "nonce": nonce, "timestamp": ts,
+                "sign": hmac.new(sk.encode(), msg.encode(), hashlib.sha256).hexdigest()}
+
+    async def poll(self, session) -> None:
+        sn = self.cfg["sn"]
+        params = {"sn": sn}
+        data = await self.get_json(session, self.BASE + "/iot-open/sign/device/quota/all", params=params,
+                                   headers=self._signed_headers(params))
+        if str(data.get("code")) != "0":
+            raise RuntimeError("EcoFlow API code %s: %s" % (data.get("code"), data.get("message")))
+        q = data.get("data") or {}
+        name = self.cfg.get("name", "the EcoFlow")
+        extras = [x for x in (q.get("kit.productInfoDetails") or []) if x.get("sn")]
+        watts_in, watts_out = int(q.get("pd.wattsInSum") or 0), int(q.get("pd.wattsOutSum") or 0)
+        ac_volts = (q.get("inv.acInVol") or 0) / 1000.0
+        # pd.watts*Sum include pass-through; battery charge power = AC in - AC out + solar
+        ac_in_w, ac_out_w = int(q.get("inv.inputWatts") or 0), int(q.get("inv.outputWatts") or 0)
+        charge_w = max(0, ac_in_w - ac_out_w) + int(q.get("mppt.inWatts") or 0)
+        charging = bool(q.get("inv.chargerType")) or charge_w > 50
+        cur = {
+            "soc": q.get("ems.lcdShowSoc", q.get("pd.soc")), "main_soc": q.get("bmsMaster.soc"),
+            "extra_socs": [round(x.get("f32Soc", x.get("soc", 0))) for x in extras],
+            "watts_in": watts_in, "watts_out": watts_out,
+            "ac_in_w": q.get("inv.inputWatts"), "ac_out_w": q.get("inv.outputWatts"),
+            "ac_volts": round(ac_volts, 1), "solar_w": q.get("mppt.inWatts"),
+            "charging": charging, "charge_w": charge_w,
+            "chg_min": q.get("ems.chgRemainTime"), "dsg_min": q.get("ems.dsgRemainTime"),
+            "limit": q.get("ems.maxChargeSoc"), "ac_charge_w": q.get("inv.cfgSlowChgWatts"),
+            "temp": q.get("bmsMaster.temp"),
+            "errors": {k: q[k] for k in self.ERROR_KEYS if q.get(k)},
+            "ts": dt.datetime.now().isoformat(timespec="seconds"),
+        }
+        prev = self.state.get("current") or {}
+        # AC input lost while plugged in (breaker trip, unplugged) / restored
+        was_ac = (prev.get("ac_volts") or 0) > 80
+        if prev and was_ac and ac_volts < 20:
+            self.emit({"kind": "ecoflow_ac_lost", "device_name": name, "soc": str(cur["soc"])})
+        elif prev and not was_ac and ac_volts > 80:
+            self.emit({"kind": "ecoflow_ac_restored", "device_name": name, "soc": str(cur["soc"])})
+        # new fault codes
+        new_faults = {k: v for k, v in cur["errors"].items() if prev.get("errors", {}).get(k) != v}
+        if new_faults:
+            self.emit({"kind": "ecoflow_fault", "device_name": name,
+                       "detail": ", ".join("%s %s" % kv for kv in sorted(new_faults.items()))})
+        # system charge thresholds, once per crossing, re-armed 3 points above
+        fired = self.state.setdefault("fired", [])
+        soc = cur["soc"] or 0
+        for th in sorted(self.cfg.get("thresholds", [30, 15]), reverse=True):
+            if soc <= th and th not in fired:
+                fired.append(th)
+                self.emit({"kind": "ecoflow_low", "device_name": name, "soc": str(soc), "threshold": th})
+                break
+        self.state["fired"] = [th for th in fired if soc <= th + 3]
+        self.state["current"] = cur
+
+    def lines(self, now):
+        c = self.state.get("current")
+        if not c:
+            return []
+        age = (now - dt.datetime.fromisoformat(c["ts"])).total_seconds()
+        if age > max(self.interval * 5, 600):
+            return ["- %s: UNKNOWN (no data for %d min)" % (self.cfg.get("name", "EcoFlow"), age // 60)]
+        parts = ["%s%%" % c["soc"]]
+        if c.get("extra_socs"):
+            parts.append("main %s%%, extra batteries %s" % (c["main_soc"], ", ".join("%s%%" % s for s in c["extra_socs"])))
+        if c["charging"]:
+            flow = "charging, %d W into the batteries" % c.get("charge_w", 0)
+            if c.get("chg_min") and c["chg_min"] < 6000:
+                flow += ", about %.1f h to the %s%% limit" % (c["chg_min"] / 60.0, c["limit"])
+        elif (c.get("ac_out_w") or 0) > 20 or c["watts_out"] > 20:
+            flow = "on battery, %d W out" % max(c.get("ac_out_w") or 0, c["watts_out"])
+            if c.get("dsg_min") and c["dsg_min"] < 6000:
+                flow += ", about %.1f h of runtime" % (c["dsg_min"] / 60.0)
+        else:
+            flow = "idle"
+        ac = ("plugged in (%.0f V), passing %s W through" % (c["ac_volts"], c["ac_out_w"])
+              if c["ac_volts"] > 80 else "not on AC power")
+        faults = "FAULT: " + ", ".join("%s %s" % kv for kv in c["errors"].items()) if c["errors"] else "no faults"
+        return ["- %s: %s; %s; %s; %s C; %s" % (self.cfg.get("name", "EcoFlow"), ", ".join(parts), flow, ac,
+                                              c.get("temp"), faults)]
+
+
 FEEDS = {"weather_alerts": WeatherAlerts, "earthquakes": Earthquakes, "wildfires": Wildfires,
          "outdoor_air": OutdoorAir, "flight_restrictions": FlightRestrictions, "low_aircraft": LowAircraft}
 FEEDS['solar_weather'] = SolarWeather
 FEEDS['forecast'] = WeatherForecast
 FEEDS['rain_nowcast'] = RainNowcast
+FEEDS['ecoflow'] = EcoFlow
 
 
 def build_feeds(cfg: dict) -> Dict[str, Feed]:
@@ -635,6 +745,9 @@ def build_feeds(cfg: dict) -> Dict[str, Feed]:
         if name == 'outdoor_air' and not os.environ.get('IQAIR_API_KEY'):
             continue
         if name == 'rain_nowcast' and not os.environ.get('OPENWEATHER_API_KEY'):
+            continue
+        if name == 'ecoflow' and not (c.get('sn') and os.environ.get('ECOFLOW_ACCESS_KEY')
+                                      and os.environ.get('ECOFLOW_SECRET_KEY')):
             continue
         if name in ('flight_restrictions', 'low_aircraft') and not (os.environ.get('AIRSPACE_URL') and os.environ.get('AIRSPACE_API_KEY')):
             continue

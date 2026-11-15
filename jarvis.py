@@ -3056,6 +3056,14 @@ async def pair_device(name: str, pin_file: Optional[str]) -> int:
     if conf is None:
         print("device %r not found" % name, file=sys.stderr)
         return 1
+    # Apple HomeView (and tvOS 27 Apple TVs) only show the PIN when pairing
+    # requests carry X-Apple-Client-Name. pyatv 0.18.0 doesn't send it (fix
+    # pending upstream: postlund/pyatv#2894, issue #2950), so add it to the HAP
+    # pairing headers for the duration of pairing only.
+    from pyatv.protocols.airplay.auth import hap as airplay_hap
+
+    saved_headers = dict(airplay_hap._AIRPLAY_HEADERS)
+    airplay_hap._AIRPLAY_HEADERS["X-Apple-Client-Name"] = "Jarvis"
     pairing = await pyatv.pair(conf, Protocol.AirPlay, loop, name="Jarvis")
     try:
         await pairing.begin()
@@ -3088,6 +3096,8 @@ async def pair_device(name: str, pin_file: Optional[str]) -> int:
         return 0
     finally:
         await pairing.close()
+        airplay_hap._AIRPLAY_HEADERS.clear()
+        airplay_hap._AIRPLAY_HEADERS.update(saved_headers)
 
 
 async def list_devices() -> None:

@@ -322,16 +322,25 @@ def build_status(j, cfg: dict, now: Optional[dt.datetime] = None) -> dict:
                 if t >= cutoff:
                     out["drones"].append({"at": t.strftime("%-I:%M %p"), "model": x["model"],
                                           "distance": x["distance"], "near": x["near"],
-                                          "miles": x.get("miles"), "dir": x.get("dir")})
+                                          "miles": x.get("miles"), "dir": x.get("dir"),
+                                          # radar dot only while the sighting is recent
+                                          "recent": now - t <= dt.timedelta(minutes=15)})
             out["drones"] = out["drones"][:6]
         feeds = getattr(j, "FEEDS", {}) or {}
         la = feeds.get("low_aircraft")
         if la:
-            since = (now - dt.timedelta(hours=2)).isoformat()
-            out["aircraft"] = [{"at": dt.datetime.fromisoformat(h["at"]).strftime("%-I:%M %p"),
-                                "what": "helicopter" if h["heli"] else h["label"], "agl": h["agl"],
-                                "miles": h.get("miles"), "dir": h.get("dir")}
-                               for h in la.state.get("history", []) if h["at"] >= since][-5:][::-1]
+            # Only aircraft in the zone right now, at their current position: a track
+            # is refreshed each poll while the aircraft is low and close, so it drops
+            # off ~3 polls after it leaves or stops transmitting. (Past alerts stay in
+            # the alert log.)
+            live_for = dt.timedelta(seconds=max(90, 3 * float(getattr(la, "interval", 30))))
+            live = []
+            for tr in la.state.get("tracks", {}).values():
+                if now - dt.datetime.fromisoformat(tr["last"]) <= live_for:
+                    live.append({"at": dt.datetime.fromisoformat(tr["first"]).strftime("%-I:%M %p"),
+                                 "what": "helicopter" if tr.get("heli") else tr.get("label", "aircraft"),
+                                 "agl": tr.get("agl"), "miles": tr.get("miles"), "dir": tr.get("dir")})
+            out["aircraft"] = sorted(live, key=lambda x: x["miles"] if x["miles"] is not None else 99)[:5]
         fr = feeds.get("flight_restrictions")
         if fr:
             out["tfrs"] = [{"type": f["type"].upper(), "inside": f["inside"], "miles": f["miles"], "uas": f["uas"]}

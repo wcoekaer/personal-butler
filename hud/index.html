@@ -544,13 +544,13 @@ footer.foot::before { content: ""; position: absolute; left: 0; right: 0; top: 0
     // airspace
     var a = s.airspace || {}, al = "", alvl = "";
     blips = [];
-    (a.drones || []).forEach(function (d) { if (d.miles != null && d.dir) blips.push({ kind: "drone", miles: d.miles, deg: DIRS[d.dir] || 0 }); });
+    (a.drones || []).forEach(function (d) { if (d.recent !== false && d.miles != null && d.dir) blips.push({ kind: "drone", miles: d.miles, deg: DIRS[d.dir] || 0 }); });
     (a.aircraft || []).forEach(function (x) { if (x.miles != null && x.dir) blips.push({ kind: "air", miles: x.miles, deg: DIRS[x.dir] || 0 }); });
     if (a.sensor) al += row("Remote ID sensor", a.sensor, a.sensor === "online" ? "ok-text" : "warn-text");
     (a.tfrs || []).forEach(function (f) { al += row(f.type + (f.uas ? " · drones" : ""), f.inside ? "over the house" : f.miles + " mi", f.inside ? "warn-text" : ""); if (f.inside) alvl = "warn"; });
     al += items(a.drones, function (d) { return '<li><span class="t">' + esc(d.at) + '</span><span class="warn-text">' + esc(d.model) + " · " + esc(d.distance) + (d.dir ? " " + esc(d.dir) : "") + "</span></li>"; });
     al += items(a.aircraft, function (x) { return '<li><span class="t">' + esc(x.at) + '</span><span class="crit-text">' + esc(x.what) + " · " + esc(x.agl) + " ft</span></li>"; });
-    if (!(a.drones || []).length && !(a.aircraft || []).length) al += none("Skies clear. No drones in 24 h, no low aircraft.");
+    if (!(a.drones || []).length && !(a.aircraft || []).length) al += none("Skies clear. No drones in 24 h, no low aircraft now.");
     else ticker.push((a.drones || []).length + " drone sighting(s) in 24 h");
     $("airspace").innerHTML = al; level($("p-airspace"), alvl);
 

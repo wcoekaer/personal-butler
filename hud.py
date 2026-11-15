@@ -386,12 +386,20 @@ def build_status(j, cfg: dict, now: Optional[dt.datetime] = None) -> dict:
     s["portable"] = _safe(portable, {})
 
     # --- vehicle -----------------------------------------------------------------------
-    def vehicle():
-        out = {"name": first(r, "Vehicle name"), "battery": _num(first(r, "Vehicle battery")),
-               "range": _num(first(r, "Vehicle range")), "charging": first(r, "Vehicle charging state"),
-               "locked": first(r, "Vehicle locked"), "status": first(r, "Vehicle status")}
-        return {k: v for k, v in out.items() if v is not None}
-    s["vehicle"] = _safe(vehicle, {})
+    def vehicles():
+        # one entry per car configured as "<Name> battery" on a teslaapi/vehicle_data_* topic
+        cars = []
+        for spec in (j.MQTT.cfg.get("topics", []) if j.MQTT else []):
+            if (str(spec.get("topic", "")).startswith("teslaapi/vehicle_data_")
+                    and str(spec.get("field", "")).endswith("battery_level")):
+                name = str(spec.get("label", "Vehicle battery")).rsplit(" battery", 1)[0]
+                car = {"name": name, "battery": _num(first(r, name + " battery")),
+                       "range": _num(first(r, name + " range")), "charging": first(r, name + " charging state"),
+                       "locked": first(r, name + " locked"), "status": first(r, name + " status")}
+                cars.append({k: v for k, v in car.items() if v is not None})
+        return cars
+    s["vehicles"] = _safe(vehicles, [])
+    s["vehicle"] = s["vehicles"][0] if s["vehicles"] else {}  # older page versions
     return s
 
 

@@ -587,9 +587,10 @@ footer.foot::before { content: ""; position: absolute; left: 0; right: 0; top: 0
     }
     var st = s.stock || {};
     if (st.price != null) ol += row(st.symbol || "Stock", "$" + Number(st.price).toFixed(2) + (st.closed ? " · close" : ""));
-    var car = s.vehicle || {};
-    if (car.battery != null) ol += row(car.name || "Car", Math.round(car.battery) + "%" + (car.range != null ? " · " + Math.round(car.range) + " mi" : "") + (car.charging ? " · " + car.charging : ""));
-    else if (car.status) ol += row("Car", "asleep");
+    (s.vehicles || (s.vehicle ? [s.vehicle] : [])).forEach(function (car) {
+      if (car.battery != null) ol += row(car.name || "Car", Math.round(car.battery) + "%" + (car.range != null ? " · " + Math.round(car.range) + " mi" : "") + (car.charging ? " · " + car.charging : ""), car.battery <= 20 ? "warn-text" : "");
+      else if (car.status) ol += row(car.name || "Car", "asleep");
+    });
     $("outside").innerHTML = ol || none("All quiet outside."); level($("p-outside"), olvl);
 
     // portable power station (EcoFlow): one small line, highlighted only when low or faulted

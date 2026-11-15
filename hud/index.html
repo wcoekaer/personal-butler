@@ -126,6 +126,7 @@ header.bar::after { content: ""; position: absolute; left: 0; right: 0; bottom: 
   @keyframes breathe { 50% { opacity: .55; transform: scale(.94); } }
 }
 .flows { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; width: 100%; }
+.porta { width: 100%; text-align: center; font-size: 11px; letter-spacing: .12em; text-transform: uppercase; opacity: .7; margin-top: -2px; }
 .flow { text-align: center; padding: 6px 0 2px; border-top: 1px solid var(--line); position: relative; }
 .flow .v { font: 500 1.3rem var(--f-data); font-variant-numeric: tabular-nums; }
 .flow .k { font: 0.62rem var(--f-data); letter-spacing: 0.16em; text-transform: uppercase; color: var(--muted); }
@@ -223,6 +224,7 @@ footer.foot::before { content: ""; position: absolute; left: 0; right: 0; top: 0
       <div class="flow"><div class="v" id="f-house">--</div><div class="k">House kW</div></div>
       <div class="flow"><div class="v" id="f-batt">--</div><div class="k" id="f-batt-k">Battery kW</div></div>
     </div>
+    <div class="porta" id="porta" hidden></div>
     <div class="trace">
       <canvas id="trace" aria-label="Energy, last 24 hours"></canvas>
       <div class="legend"><span><i style="background:var(--cyan)"></i>CHARGE %</span><span><i style="background:var(--solar)"></i>SOLAR</span><span><i style="background:#a98bff"></i>HOUSE</span><span>24 H</span></div>
@@ -495,6 +497,8 @@ footer.foot::before { content: ""; position: absolute; left: 0; right: 0; top: 0
     if (w.humidity != null) wl += row("Humidity", w.humidity + "%");
     if (w.wind != null) wl += row("Wind / gusts", w.wind + " / " + (w.gust == null ? "--" : w.gust) + " mph");
     if (w.rain != null && Number(w.rain) > 0) wl += row("Rain today", w.rain + " in");
+    if (w.rain_now) wl += row("Rain", "falling now", "warn-text");
+    else if (w.rain_in_min != null) { wl += row("Rain", "starting in ~" + w.rain_in_min + " min", "warn-text"); ticker.push("Rain starting in about " + w.rain_in_min + " minutes"); }
     if (w.uv != null) wl += row("UV index", w.uv);
     if (w.aqi) { var aq = w.aqi.value, aqc = aq > 150 ? "crit-text" : aq > 100 ? "warn-text" : aq > 50 ? "" : "ok-text";
       wl += row("Outdoor air", aq + " · " + w.aqi.band, aqc); if (aq > 100) wlvl = aq > 150 ? "crit" : "warn"; }
@@ -531,6 +535,10 @@ footer.foot::before { content: ""; position: absolute; left: 0; right: 0; top: 0
     var sl_on = (n.starlink || []).filter(function (x) { return x.on; });
     sl_on.forEach(function (x) { nl += row(x.name, "ACTIVE", "warn-text"); nlvl = nlvl || "warn"; ticker.push(x.name); });
     if ((n.starlink || []).length && !sl_on.length) nl += row("Starlink", "nominal", "ok-text");
+    var hk = n.homekit_down;
+    if (hk && hk.count) nl += row("Home · not responding", hk.count + " of " + hk.total, hk.count > 10 ? "warn-text" : "");
+    if ((n.feeds_down || []).length) { nl += row("Feeds not updating", n.feeds_down.slice(0, 3).join(", ") + (n.feeds_down.length > 3 ? " +" + (n.feeds_down.length - 3) : ""), "warn-text");
+      nlvl = nlvl || "warn"; chips.push([n.feeds_down.length + " feed" + (n.feeds_down.length > 1 ? "s" : "") + " stale", "warn"]); }
     $("network").innerHTML = nl || none("No network data yet."); level($("p-network"), nlvl);
 
     // airspace
@@ -560,7 +568,9 @@ footer.foot::before { content: ""; position: absolute; left: 0; right: 0; top: 0
     if (op.length) pl += row("Open (" + op.length + ")", op.slice(0, 3).join(", ") + (op.length > 3 ? " +" + (op.length - 3) : ""), "warn-text");
     if (sec.devices_offline && !/^0 of /.test(sec.devices_offline)) pl += row("Devices offline", sec.devices_offline);
     if (sec.raid) pl += row("Recorder RAID", "rebuild " + sec.raid.progress + "% · " + sec.raid.eta_h + " h", "warn-text");
-    if ((sec.low_batteries || []).length) pl += row("Low batteries", sec.low_batteries.length + " devices", "warn-text");
+    if ((sec.cameras_offline || []).length) { pl += row("Cameras offline", sec.cameras_offline.join(", "), "warn-text"); if (!plvl) plvl = "warn"; }
+    (sec.storage || []).forEach(function (x) { pl += row("Recorder storage", x, "crit-text"); plvl = "crit"; ticker.push("Recorder: " + x); });
+    if ((sec.low_batteries || []).length) pl += row("Low batteries", sec.low_batteries.length <= 2 ? sec.low_batteries.join(", ") : sec.low_batteries.length + " devices", "warn-text");
     pl += '<div class="sub-h">Cameras · 12 h</div>' + (items((sec.detections || []).slice(0, 6), function (d) { return '<li><span class="t">' + esc(d.at) + "</span><span>" + esc(d.camera) + " · " + esc((d.types || []).join(", ")) + "</span></li>"; }) || none("No detections."));
     $("security").innerHTML = pl; level($("p-security"), plvl);
     if (plvl === "crit") chips.push(["Alarm", "crit"]);
@@ -575,10 +585,27 @@ footer.foot::before { content: ""; position: absolute; left: 0; right: 0; top: 0
       (tr.accidents || []).slice(0, 2).forEach(function (x) { ticker.push(x.text); });
       $("credit").textContent = tr.credit || "";
     }
+    var st = s.stock || {};
+    if (st.price != null) ol += row(st.symbol || "Stock", "$" + Number(st.price).toFixed(2) + (st.closed ? " · close" : ""));
     var car = s.vehicle || {};
     if (car.battery != null) ol += row(car.name || "Car", Math.round(car.battery) + "%" + (car.range != null ? " · " + Math.round(car.range) + " mi" : "") + (car.charging ? " · " + car.charging : ""));
     else if (car.status) ol += row("Car", "asleep");
     $("outside").innerHTML = ol || none("All quiet outside."); level($("p-outside"), olvl);
+
+    // portable power station (EcoFlow): one small line, highlighted only when low or faulted
+    var pp = s.portable || {};
+    $("porta").hidden = pp.soc == null;
+    if (pp.soc != null) {
+      var psoc = Math.round(pp.soc), pfault = Object.keys(pp.faults || {}).length > 0;
+      var pcls = pfault || psoc <= 15 ? "crit" : psoc <= 30 ? "warn" : "";
+      var pstate = pp.charging ? "charging " + ((pp.charge_w || 0) / 1000).toFixed(1) + " kW"
+                 : pp.out_w > 20 ? "on battery " + ((pp.out_w || 0) / 1000).toFixed(1) + " kW" : "idle";
+      var ptxt = (pp.name || "Portable") + " " + psoc + "% · " + pstate + (pp.ac_volts > 80 ? "" : " · no AC")
+               + (pfault ? " · FAULT" : "") + (pp.stale ? " · stale" : "");
+      $("porta").textContent = ptxt;
+      $("porta").className = "porta" + (pcls ? " " + pcls + "-text" : "");
+      if (pcls) { chips.push([(pp.name || "Portable") + (pfault ? " fault" : " " + psoc + "%"), pcls]); ticker.push(ptxt); }
+    }
 
     // alert log + ticker
     $("alerts").innerHTML = items((v.alerts || []).slice(0, 5), function (x) { return '<li><span class="t">' + esc(x.at) + '</span><span class="clamp">' + esc(x.text) + "</span></li>"; }) || none("No alerts in 24 h.");

@@ -55,8 +55,13 @@ def readings(j, now: dt.datetime) -> Dict[str, list]:
     default_age = int(m.cfg.get("max_age_minutes", 720))
     for spec in m.cfg.get("topics", []):
         max_age = dt.timedelta(minutes=int(spec.get("max_age_minutes", default_age)))
-        topics = sorted(t for t, (_, seen) in values.items()
-                        if now - seen <= max_age and j.topic_matches(spec["topic"], t))
+        if spec.get("stateful"):
+            # retained on/off state, sent only on change: valid while its publisher is alive
+            topics = sorted(t for t in values
+                            if j.topic_matches(spec["topic"], t) and m.publisher_alive(t, values))
+        else:
+            topics = sorted(t for t, (_, seen) in values.items()
+                            if now - seen <= max_age and j.topic_matches(spec["topic"], t))
         if spec.get("include"):
             topics = [t for t in topics if any(s in t for s in spec["include"])]
         if spec.get("exclude"):
@@ -175,6 +180,16 @@ def build_status(j, cfg: dict, now: Optional[dt.datetime] = None) -> dict:
         if fc:
             out["forecast"] = [{"name": x["name"], "temp": x["temp"], "day": x["day"], "short": x["short"],
                                 "rain": x.get("rain")} for x in fc.state.get("periods", [])[:4]]
+        rn = feeds.get("rain_nowcast")
+        n = (rn.state.get("now") if rn else None) or {}
+        at = dt.datetime.fromisoformat(n["at"]) if n else None
+        if at is not None and at.tzinfo is None:
+            at = at.astimezone()  # naive = local time
+        if at is not None and dt.datetime.now(dt.timezone.utc) - at < dt.timedelta(minutes=30):
+            if n.get("raining"):
+                out["rain_now"] = True
+            elif n.get("starts_in_min") is not None:
+                out["rain_in_min"] = n["starts_in_min"]
         wa = feeds.get("weather_alerts")
         out["alerts"] = [{"event": a["event"], "severity": a["severity"]}
                          for a in (wa.state.get("active", {}).values() if wa else [])]
@@ -213,6 +228,22 @@ def build_status(j, cfg: dict, now: Optional[dt.datetime] = None) -> dict:
             with j.MQTT.lock:
                 out["wan"] = [{"label": label, "state": state}
                               for _, (label, state) in sorted(u.wan_states().items(), key=lambda kv: kv[1][0])]
+        if j.MQTT:
+            with j.MQTT.lock:
+                reach = [(t, v[0]) for t, v in j.MQTT.values.items() if t.startswith("homekit/") and t.endswith("/Reachable")]
+            down = []
+            for t, payload in reach:
+                try:
+                    if json.loads(payload).get("value") is False:
+                        down.append(t.split("/")[3])
+                except ValueError:
+                    pass
+            out["homekit_down"] = {"count": len(down), "total": len(reach), "names": sorted(down)[:4]}
+        jr = getattr(j, "JOURNAL", None)
+        if jr is not None:
+            # data sources only: speakers go "stale" whenever nothing has played on them lately
+            out["feeds_down"] = [h["name"] for h in jr.health_rows()
+                                 if h.get("status") in ("error", "stale") and not h["name"].startswith("speaker:")]
         flags = [(n, f) for n, _, f in r.get("HomeKit sensor", []) if "starlink" in n.lower()]
         out["starlink"] = [{"name": n.split(" / ")[-2] if " / " in n else n, "on": f == "open"} for n, f in flags]
         return out
@@ -242,6 +273,13 @@ def build_status(j, cfg: dict, now: Optional[dt.datetime] = None) -> dict:
                     out["alarms"].append({"what": "Sensor tampering" if tamper else names.get(kind, kind),
                                           "device": u.names.get(dev, "sensor"), "at": t.strftime("%-I:%M %p"),
                                           "level": "warn" if tamper else "crit"})
+                out["low_batteries"] += [u.names.get(dev, "UniFi sensor") for dev in u.low_batt]
+                out["storage"] = [prob for probs in u.storage.values() for prob in probs][:3]
+                values = dict(j.MQTT.values)
+                for mac, name in sorted(u.camera_macs.items(), key=lambda kv: kv[1]):
+                    t = "/unifi/protect/%s/availability" % mac
+                    if t in values and values[t][0] == "offline" and j.MQTT.publisher_alive(t, values):
+                        out.setdefault("cameras_offline", []).append(name)
                 raid = [{"progress": round(rs["progress"] * 100), "eta_h": round((rs.get("eta_ms") or 0) / 3.6e6)}
                         for rs in u.raid_sync.values()
                         if now - dt.datetime.fromisoformat(rs["seen"]) < dt.timedelta(minutes=30)]
@@ -314,6 +352,38 @@ def build_status(j, cfg: dict, now: Optional[dt.datetime] = None) -> dict:
         return {"updated": t.updated, "accidents": [item(i) for i in acc[:5]],
                 "closures": [item(i) for i in clo[:5]], "credit": "Data provided by 511.org"}
     s["traffic"] = _safe(traffic, {})
+
+    # --- stock price (any configured "... share price" topic) ------------------------
+    def stock():
+        # Last price even outside market hours (the briefing spec only accepts fresh ones)
+        spec = next((x for x in (j.MQTT.cfg.get("topics", []) if j.MQTT else [])
+                     if "share price" in str(x.get("label", "")).lower()), None)
+        if not spec:
+            return {}
+        with j.MQTT.lock:
+            hit = next(((t, v) for t, v in j.MQTT.values.items() if j.topic_matches(spec["topic"], t)), None)
+        if not hit:
+            return {}
+        price = _num(j.extract_field(hit[1][0], spec.get("field")))
+        label = spec["label"]
+        sym = label[label.index("(") + 1:label.index(")")] if "(" in label and ")" in label else label
+        old = now - hit[1][1] > dt.timedelta(minutes=int(spec.get("max_age_minutes", 60)))
+        return {"symbol": sym, "price": price, "closed": old} if price is not None else {}
+    s["stock"] = _safe(stock, {})
+
+    # --- portable power station (EcoFlow feed) ---------------------------------------
+    def portable():
+        f = (getattr(j, "FEEDS", {}) or {}).get("ecoflow")
+        c = (f.state.get("current") if f else None) or {}
+        if not c:
+            return {}
+        age = (now - dt.datetime.fromisoformat(c["ts"])).total_seconds()
+        return {"name": f.cfg.get("name", "EcoFlow"), "soc": c.get("soc"), "main": c.get("main_soc"),
+                "extras": c.get("extra_socs") or [], "charging": bool(c.get("charging")),
+                "charge_w": c.get("charge_w"), "out_w": c.get("ac_out_w"), "ac_volts": c.get("ac_volts"),
+                "limit": c.get("limit"), "temp": c.get("temp"), "faults": c.get("errors") or {},
+                "stale": age > max(f.interval * 5, 600)}
+    s["portable"] = _safe(portable, {})
 
     # --- vehicle -----------------------------------------------------------------------
     def vehicle():

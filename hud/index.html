@@ -235,6 +235,7 @@ footer.foot::before { content: ""; position: absolute; left: 0; right: 0; top: 0
       <div class="said" id="said"></div>
       <div style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
         <button type="button" class="arm" id="arm" aria-pressed="false">Tap to enable voice</button>
+        <button type="button" class="arm" id="music-btn" aria-pressed="false" hidden>♪ Music</button>
         <span class="none" id="arm-note"></span>
       </div>
     </section>
@@ -433,8 +434,85 @@ footer.foot::before { content: ""; position: absolute; left: 0; right: 0; top: 0
       player.play().catch(function () {});
     }
     if (actx && actx.state === "suspended") actx.resume();
+    if (music.want && !music.on) musicStart();      // one tap resumes the music too
   });
-  player.addEventListener("ended", function () { speaking = false; $("p-voice").classList.remove("live"); });
+  player.addEventListener("ended", function () { speaking = false; $("p-voice").classList.remove("live"); musicSync(); });
+  player.addEventListener("playing", function () { speaking = true; musicSync(); });
+
+  // ---------- background music (hud.music): seamless Web Audio loop, ducked while Jarvis speaks ----------
+  var music = { info: null, on: false, want: false, ctx: null, gain: null, src: null, buf: null, id: null, ducked: null };
+  try { music.want = localStorage.getItem("jarvis_music") === "on"; } catch (e) {}
+  var getMusic = null;                                // set per data source below
+  function musicCtx() {
+    if (!music.ctx) {
+      music.ctx = new (window.AudioContext || window.webkitAudioContext)();
+      music.gain = music.ctx.createGain(); music.gain.gain.value = 0; music.gain.connect(music.ctx.destination);
+    }
+    if (music.ctx.state === "suspended") music.ctx.resume();
+    return music.ctx;
+  }
+  function musicLoop(buf) {                           // skip encoder padding/silence at both ends: no gap at the seam
+    var d = buf.getChannelData(0), n = d.length, a = 0, b = n - 1, th = 0.0015;
+    while (a < n && Math.abs(d[a]) < th) a++;
+    while (b > a && Math.abs(d[b]) < th) b--;
+    return b - a > buf.sampleRate ? [a / buf.sampleRate, (b + 1) / buf.sampleRate] : [0, buf.duration];
+  }
+  function musicLevel(target, secs) {
+    if (!music.gain) return;
+    var g = music.gain.gain, t = music.ctx.currentTime;
+    g.cancelScheduledValues(t); g.setValueAtTime(g.value, t); g.linearRampToValueAtTime(target, t + secs);
+  }
+  function musicTarget() {
+    var v = music.info && music.info.volume != null ? music.info.volume : 0.15;
+    return speaking ? v * (music.info && music.info.duck != null ? music.info.duck : 0.25) : v;
+  }
+  function musicSync() {                              // follow Jarvis speaking (HomePods or this display)
+    if (!music.on || music.ducked === speaking) return;
+    music.ducked = speaking;
+    musicLevel(musicTarget(), speaking ? 0.6 : 2.5);
+  }
+  function musicButton() {
+    var b = $("music-btn");
+    b.hidden = !music.info;
+    b.setAttribute("aria-pressed", String(music.on));
+    b.textContent = music.on ? "♪ Music on" : music.want ? "♪ Tap to resume music" : "♪ Music";
+  }
+  function musicStart() {
+    if (!music.info || !getMusic) return;
+    var ctx = musicCtx(), info = music.info;
+    var go = function () {
+      if (music.src) { try { music.src.stop(); } catch (e) {} }
+      var s = ctx.createBufferSource(), lp = musicLoop(music.buf);
+      s.buffer = music.buf; s.loop = true; s.loopStart = lp[0]; s.loopEnd = lp[1];
+      s.connect(music.gain); s.start(0, lp[0]);
+      music.src = s; music.on = true; music.ducked = speaking;
+      musicLevel(musicTarget(), 3); musicButton();
+    };
+    if (music.buf && music.id === info.id) { go(); return; }
+    getMusic(info)
+      .then(function (ab) { return new Promise(function (ok, bad) { ctx.decodeAudioData(ab, ok, bad); }); })
+      .then(function (buf) { music.buf = buf; music.id = info.id; if (music.want) go(); })
+      .catch(function () { $("arm-note").textContent = "Music couldn't load."; });
+  }
+  function musicStop() {
+    music.on = false; musicButton();
+    if (!music.src) return;
+    var s = music.src; music.src = null;
+    musicLevel(0, 1.2); setTimeout(function () { try { s.stop(); } catch (e) {} }, 1300);
+  }
+  $("music-btn").addEventListener("click", function () {
+    music.want = !music.on;
+    try { localStorage.setItem("jarvis_music", music.want ? "on" : "off"); } catch (e) {}
+    if (music.want) musicStart(); else musicStop();
+  });
+  function musicUpdate(info) {                        // called with each status
+    var changed = info && music.info && info.id !== music.info.id;
+    music.info = info || null;
+    if (!info && music.on) musicStop();
+    if (changed && music.on) { music.buf = null; musicStart(); }   // new track: fetch and switch
+    if (music.on && info) { music.ducked = null; musicSync(); }      // volume or duck changed in config
+    musicButton();
+  }
   function maybePlay(a) {
     if (!a || !a.id) return;
     if (seenAudio === null) { seenAudio = a.id; return; }          // don't replay what was already out when the page opened
@@ -468,6 +546,7 @@ footer.foot::before { content: ""; position: absolute; left: 0; right: 0; top: 0
 
     // voice
     speaking = !!v.speaking || (!player.paused && !player.ended && player.currentTime > 0);
+    musicUpdate(s.music); musicSync();
     $("v-next").textContent = speaking ? "speaking" : (v.next ? "next " + v.next.at : "");
     var lb = v.last_briefing;
     $("said").textContent = lb ? lb.at + " · " + lb.text : "No briefing yet today.";
@@ -642,6 +721,10 @@ footer.foot::before { content: ""; position: absolute; left: 0; right: 0; top: 0
   // ---------- data sources ----------
   if (window.JARVIS_SOURCE === "ws") {
     getAudio = function (a) { return Promise.resolve("audio/latest.m4a?id=" + encodeURIComponent(a.id)); };
+    getMusic = function (m) {
+      return fetch("audio/music.m4a?id=" + encodeURIComponent(m.id) + location.search.replace(/^\?/, "&"))
+        .then(function (r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.arrayBuffer(); });
+    };
     var connect = function () {
       var ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws" + location.search);
       ws.onmessage = function (m) { var d; try { d = JSON.parse(m.data); } catch (e) { return; }
@@ -665,6 +748,7 @@ footer.foot::before { content: ""; position: absolute; left: 0; right: 0; top: 0
         .then(function (box) { return keyP.then(function (k) { return crypto.subtle.decrypt({ name: "AES-GCM", iv: b64(box.iv) }, k, b64(box.ct)); }); });
     };
     getAudio = function () { return open("audio.enc").then(function (buf) { return URL.createObjectURL(new Blob([buf], { type: "audio/mp4" })); }); };
+    getMusic = function () { return open("music.enc"); };   // decrypted ArrayBuffer
     var pull = function () {
       open("status.enc").then(function (buf) { render(JSON.parse(new TextDecoder().decode(buf))); })
         .catch(function (e) { if (!last) gate(e && e.name === "OperationError" ? "The key in this link doesn't match." : "No data yet (" + (e && e.message) + ")."); });

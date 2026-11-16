@@ -331,6 +331,11 @@ hud:
   port: 8790
   push_seconds: 3              # local refresh
   file_seconds: 60             # status file + remote push interval
+  # music:                     # optional background loop on the display (the ♪ button)
+  #   file: ~/Music/hud-loop.m4a   # any format ffmpeg reads; converted to AAC and cached
+  #   volume: 0.15              # 0-1
+  #   duck: 0.25                # fraction of that volume while Jarvis speaks
+  #   publish: true             # also to the remote page, encrypted like the voice audio
   remote:
     enabled: false
     host: www.example.com

@@ -419,6 +419,10 @@ Configure it under `hud:` in `config.yaml`.
   the display as it starts on the HomePods; the remote page fetches the encrypted audio.
   Browsers require that one tap, and a reload asks for it again. Limit it to certain
   broadcasts with `hud.play_broadcasts`.
+- **Background music:** set `hud.music.file` to a track you have the rights to (any format
+  ffmpeg reads). A ♪ button on the display starts and stops a seamless, quiet loop
+  (`volume`), which dips to `duck` while Jarvis speaks. The choice is remembered per display.
+  With `publish: true` the remote page gets it too, encrypted like the voice audio.
 
 Apple's HomeView has no third-party SDK or App Store (launch, Nov 2026): third-party
 content comes only from a paired iPhone (small widgets, CarPlay audio/video apps). The

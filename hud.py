@@ -466,6 +466,12 @@ def push_remote(rcfg: dict, status: dict, page_hash: Dict[str, str]) -> None:
         ssh_put(rcfg, "index.html", html)
         ssh_put(rcfg, "version.txt", digest.encode())   # open pages reload when this changes
         page_hash["page"] = digest
+    if MUSIC.get("id") and MUSIC.get("publish"):
+        if page_hash.get("music") != MUSIC["id"]:        # once per track version
+            ssh_put(rcfg, "music.enc", encrypt_bytes(Path(MUSIC["path"]).read_bytes(), key).encode())
+            page_hash["music"] = MUSIC["id"]
+    elif "music" in status:
+        status = {k: v for k, v in status.items() if k != "music"}
     ssh_put(rcfg, "status.enc", encrypt_status(status, key).encode())
 
 
@@ -509,7 +515,64 @@ def sample_history(status: dict, now: dt.datetime) -> None:
         pass
 
 
+# Background music (hud.music): one looping track, converted to AAC (Safari plays AAC in
+# MP4 reliably, Opus-in-MP4 not), served by the local HUD and, encrypted like the
+# voice audio, to the remote page.
+MUSIC: Dict[str, object] = {"path": None, "id": None, "volume": 0.15, "duck": 0.25, "publish": True}
+
+
+def prepare_music(cfg: dict) -> None:
+    """(Re)convert hud.music.file when it changed; clears MUSIC when unset or missing."""
+    import shutil
+    import subprocess
+
+    mcfg = (cfg.get("hud") or {}).get("music") or {}
+    src = Path(os.path.expanduser(str(mcfg.get("file") or ""))) if mcfg.get("file") else None
+    if not src or not src.is_file() or mcfg.get("enabled") is False:
+        MUSIC.update(path=None, id=None)
+        return
+    st = src.stat()
+    xfade = max(0.0, float(mcfg.get("crossfade_seconds", 2.0)))
+    mid = hashlib.sha1(("%s:%d:%d:%g" % (src, st.st_size, int(st.st_mtime), xfade)).encode()).hexdigest()[:12]
+    MUSIC.update(volume=max(0.0, min(1.0, float(mcfg.get("volume", 0.15)))),
+                 duck=max(0.0, min(1.0, float(mcfg.get("duck", 0.25)))),
+                 publish=bool(mcfg.get("publish", True)))
+    out, marker = AUDIO_DIR / "music.m4a", AUDIO_DIR / "music.id"
+    if MUSIC.get("id") == mid and out.exists():
+        return
+    AUDIO_DIR.mkdir(parents=True, exist_ok=True)
+    if not (out.exists() and marker.exists() and marker.read_text().strip() == mid):
+        ffmpeg = shutil.which("ffmpeg") or "/opt/homebrew/bin/ffmpeg"
+        ffprobe = shutil.which("ffprobe") or "/opt/homebrew/bin/ffprobe"
+        tmp = AUDIO_DIR / "music.tmp.m4a"
+        try:
+            length = float(subprocess.run([ffprobe, "-v", "error", "-show_entries", "format=duration",
+                                           "-of", "csv=p=0", str(src)], capture_output=True, text=True,
+                                          check=True, timeout=60).stdout.strip())
+        except (ValueError, subprocess.SubprocessError):
+            length = 0.0
+        cmd = [ffmpeg, "-y", "-loglevel", "error", "-i", str(src), "-vn"]
+        if xfade and length > 4 * xfade:
+            # Seamless loop: the last `xfade` seconds fade out over the first `xfade` fading in
+            # (equal power), then the middle follows; played on repeat, the end runs into the start.
+            c, end = "%.3f" % xfade, "%.3f" % (length - xfade)
+            cmd += ["-filter_complex",
+                    "[0:a]asplit=3[a][b][m];"
+                    "[a]atrim=0:%s,asetpts=PTS-STARTPTS,afade=t=in:d=%s:curve=qsin[h];" % (c, c) +
+                    "[b]atrim=start=%s,asetpts=PTS-STARTPTS,afade=t=out:d=%s:curve=qsin[t];" % (end, c) +
+                    "[m]atrim=%s:%s,asetpts=PTS-STARTPTS[mid];" % (c, end) +
+                    "[t][h]amix=inputs=2:normalize=0:duration=shortest[x];[x][mid]concat=n=2:v=0:a=1[out]",
+                    "-map", "[out]"]
+        subprocess.run(cmd + ["-c:a", "aac", "-b:a", "160k", str(tmp)], check=True, timeout=300)
+        tmp.replace(out)
+        marker.write_text(mid)
+        log.info("HUD music: %s converted (%d KB)", src.name, out.stat().st_size // 1024)
+    MUSIC.update(path=out, id=mid)
+
+
 def _augment(status: dict) -> dict:
+    if MUSIC.get("id"):
+        status["music"] = {"id": MUSIC["id"], "volume": MUSIC["volume"], "duck": MUSIC["duck"]}
     status.setdefault("energy", {})["history"] = HISTORY
     if LIVE["audio"]:
         status.setdefault("voice", {})["audio"] = {k: LIVE["audio"][k] for k in ("id", "name", "at")}
@@ -602,6 +665,12 @@ async def serve(j, cfg: dict) -> None:
             return web.Response(status=404)
         return web.FileResponse(LIVE["audio"]["path"], headers={"Cache-Control": "no-store"})
 
+    async def music(request):
+        if not authorized(request) or not MUSIC.get("path"):
+            return web.Response(status=404)
+        # the URL carries the track id, so a new track is a new URL
+        return web.FileResponse(MUSIC["path"], headers={"Cache-Control": "private, max-age=86400"})
+
     async def ws_handler(request):
         if not authorized(request):
             return web.Response(status=401)
@@ -621,6 +690,7 @@ async def serve(j, cfg: dict) -> None:
     app.router.add_get("/", index)
     app.router.add_get("/status.json", status_json)
     app.router.add_get("/audio/latest.m4a", audio)
+    app.router.add_get("/audio/music.m4a", music)
     app.router.add_get("/ws", ws_handler)
     runner = web.AppRunner(app, access_log=None)
     await runner.setup()
@@ -651,6 +721,10 @@ async def serve(j, cfg: dict) -> None:
             loop_now = asyncio.get_running_loop().time()
             if loop_now - last_file >= float(hcfg.get("file_seconds", 60)):
                 last_file = loop_now
+                try:
+                    await asyncio.to_thread(prepare_music, cfg)   # picks up a replaced track file
+                except Exception as e:
+                    log.warning("HUD music: %s", e)
                 await asyncio.to_thread(write_status_file, status)
                 rcfg = hcfg.get("remote") or {}
                 if rcfg.get("enabled"):

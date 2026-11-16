@@ -38,6 +38,7 @@ import yaml
 
 import feeds as feedmod
 import outside  # noqa: F401 -- registers the extra outside-world feeds
+import world  # noqa: F401 -- registers the world/national feeds
 import scanner as scannermod
 import vehicles as vehmod
 import watchdog as watchmod
@@ -1419,6 +1420,21 @@ def ask_anthropic(prompt: str, llm: dict) -> str:
     return text
 
 
+def ask_json(prompt: str, llm: dict) -> str:
+    """Short structured call (no web search, no speech style), e.g. headline triage."""
+    if llm.get("provider") == "anthropic":
+        import anthropic
+
+        r = anthropic.Anthropic(max_retries=3).messages.create(
+            model=llm.get("model"), max_tokens=2000, messages=[{"role": "user", "content": prompt}])
+        return "".join(getattr(b, "text", "") for b in r.content).strip()
+    import openai
+
+    r = openai.OpenAI(max_retries=3).responses.create(model=llm.get("model", "gpt-5"),
+                                                      instructions="Reply with JSON only.", input=prompt)
+    return r.output_text.strip()
+
+
 def ask_openai(prompt: str, llm: dict) -> str:
     import openai
 
@@ -2731,6 +2747,12 @@ async def scheduler(cfg: dict) -> None:
         task.add_done_callback(lambda t: t.cancelled() or t.exception() and
                                log.error("feed stopped: %r", t.exception()))
     log.info("feeds: %s", ", ".join(FEEDS) or "none")
+    news = FEEDS.get("breaking_news")
+    if news is not None:                       # headline triage uses the briefing LLM, without web search
+        triage_llm = dict(cfg.get("llm") or {}, web_search=False)
+        if news.cfg.get("model"):
+            triage_llm["model"] = news.cfg["model"]
+        news.ask = lambda prompt, _llm=triage_llm: ask_json(prompt, _llm)
     global TRAFFIC
     if (cfg.get("traffic") or {}).get("enabled") and os.environ.get("TRAFFIC_API_KEY"):
         TRAFFIC = TrafficMonitor(cfg)

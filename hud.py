@@ -210,7 +210,8 @@ def build_status(j, cfg: dict, now: Optional[dt.datetime] = None) -> dict:
                                      "acres": f.get("acres"), "contained": f.get("contained")})
         # outside.py feeds: satellite heat, geomagnetic storm, airport programs, visible launches
         out["notices"] = []
-        for name in ("satellite_fires", "space_weather", "airports", "launches"):
+        for name in ("tsunami", "breaking_news", "gdacs", "world_quakes", "cloud_status",
+                     "satellite_fires", "space_weather", "airports", "launches"):
             f = feeds.get(name)
             if f is not None and hasattr(f, "hud_items"):
                 out["notices"].extend(f.hud_items(now))

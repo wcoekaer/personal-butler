@@ -300,6 +300,30 @@ feeds:
   #   rules:
   #     - {name: County alerts, sender: alerts@example.gov, kind: county_alert, urgent_words: [evacuat, "shelter[ -]in[ -]place"]}
   #     - {name: UPS, sender: mcinfo@ups.com, subject: "Scheduled for Delivery Today", kind: package_today, dedupe: true}
+  gdacs:                       # UN/EC GDACS global disasters (cyclones, floods, volcanoes ...)
+    poll_seconds: 900
+    levels: [red]              # announced; orange and red ones are listed in briefings and on the HUD
+    types: [TC, FL, VO, DR, WF, TS]   # earthquakes come from world_quakes (USGS PAGER) instead
+  world_quakes:                # USGS significant earthquakes worldwide
+    poll_seconds: 600
+    levels: [orange, red]      # PAGER impact: orange = significant, red = extensive casualties/damage likely
+  tsunami:                     # NOAA tsunami warning centers (NTWC: US/Canada coasts; PTWC: Pacific)
+    poll_seconds: 300
+    centers: [NTWC, PTWC]
+    local_words: [California]  # a warning/advisory naming these is urgent (all speakers, any hour)
+  breaking_news:               # top-tier national/international news only: LLM-scored, two outlets needed
+    poll_seconds: 600
+    threshold: 9               # 0-10 importance (see world.py TRIAGE_PROMPT)
+    corroborate: 2             # different outlets carrying the story ...
+    window_minutes: 90         # ... within this window
+    # model: <cheaper model for triage>   # default: llm.model
+  travel_advisories:           # US State Department; a level going up is announced
+    poll_seconds: 21600
+    countries: []                 # always watched, besides countries in your calendar
+    alert_level: 2
+  cloud_status:                # major incidents only (AWS disruption, GCP high, Cloudflare major, Azure, OCI multi-region)
+    poll_seconds: 600
+    providers: [AWS, Azure, Google Cloud, Cloudflare, Oracle Cloud]
   rain_nowcast:                # OpenWeather One Call minute-by-minute rain (OPENWEATHER_API_KEY)
     poll_seconds: 600          # ~144 calls/day; keep the OpenWeather daily limit at 1,000
     lead_minutes: 30           # announce rain due within this many minutes
@@ -494,6 +518,50 @@ alerts:
     hours: {from: "07:00", to: "20:00"}
     messages:
       - "A parcel note, sir: UPS has a package scheduled for delivery today{window}."
+  # world.py feeds
+  - name: tsunami-local
+    kind: tsunami_local
+    urgent: true
+    cooldown_minutes: 0
+    homepods: [Kitchen]                        # <-- all your speakers
+    messages:
+      - "Urgent, sir: NOAA has issued a tsunami {category} that includes {where}. Stay away from the coast and follow local officials."
+  - name: tsunami-alert
+    kind: tsunami_alert
+    cooldown_minutes: 0
+    hours: {from: "07:00", to: "22:30"}
+    messages:
+      - "For your information, sir: NOAA has issued a tsunami {category} for {where}."
+  - name: world-disaster
+    kind: world_disaster
+    cooldown_minutes: 0
+    hours: {from: "07:00", to: "22:30"}
+    messages:
+      - "A major disaster alert, sir: GDACS reports a {level} alert for {what} in {where}. {severity}."
+  - name: world-quake
+    kind: world_quake
+    cooldown_minutes: 0
+    hours: {from: "07:00", to: "22:30"}
+    messages:
+      - "A major earthquake, sir: magnitude {magnitude}, {place}. The USGS says {impact}.{tsunami}"
+  - name: breaking-news
+    kind: breaking_news
+    cooldown_minutes: 0
+    hours: {from: "06:30", to: "22:30"}
+    messages:
+      - "Breaking news, sir: {summary} Reported by {sources}."
+  - name: travel-advisory
+    kind: travel_advisory
+    cooldown_minutes: 0
+    hours: {from: "08:00", to: "21:00"}
+    messages:
+      - "A travel note, sir: the State Department has raised its advisory for {country} to level {level}, {text}."
+  - name: cloud-outage
+    kind: cloud_outage
+    cooldown_minutes: 0
+    hours: {from: "07:00", to: "22:00"}
+    messages:
+      - "For your information, sir: {provider} is reporting a major incident: {title}."
   - name: weather-alert
     kind: weather_alert
     exclude_events: [Evacuation Immediate, Civil Danger Warning, Civil Emergency Message, Shelter In Place Warning, Fire Warning, Law Enforcement Warning, Hazardous Materials Warning, Local Area Emergency, 911 Telephone Outage]   # see emergency-message

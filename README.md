@@ -149,6 +149,12 @@ Prompt placeholders: `{date} {time} {weekday} {part_of_day} {location} {name_ins
 | **FAA NAS status** | `feeds.airports` | `nasstatus.faa.gov` airport status: ground stops and closures at `airports` are announced; ground delay programs and delays are in briefings and on the HUD. Public. |
 | **Launch Library 2** | `feeds.launches` | Upcoming launches from `location_ids` (11 = Vandenberg). A launch that should be visible (dark or twilight sky at home, by the sun's altitude) gets a heads-up `lead_minutes` ahead with the compass direction; twilight launches are flagged for the glowing plume. Free tier 15 requests/hour: polled every 2 h, every 10 min within 3 h of a launch. |
 | **Mail** (JarvisContext) | `feeds.mail_watch` | Messages from chosen senders only, in the inbox and Trash (`mailboxes`; alerts are often read and deleted quickly), last `days`. `rules` are tried in order: `sender` substring, optional `subject` regex, event `kind`, `urgent_words` that make it `<kind>_urgent`, `dedupe` (one announcement per cooldown for the rule), `subject_strip` (regex for list prefixes), `summary: false` (don't append the first sentences of the message). A kind without an alert rule is listed in briefings only. E.g. county emergency alerts, police notices (alerts spoken, community messages in briefings), "UPS: Package Scheduled for Delivery Today" (with the delivery window). Needs Mail running. |
+| **GDACS** (UN / EC) | `feeds.gdacs` | Global disaster alerts (cyclones, floods, volcanoes, droughts, wildfires, tsunamis) rated Green/Orange/Red. Events at `levels` (Red) are announced, once per level; current Orange/Red ones are in briefings and on the HUD. Public RSS. |
+| **USGS significant earthquakes** | `feeds.world_quakes` | Worldwide, with the PAGER impact rating: orange (significant casualties/damage likely) and red are announced, with a tsunami flag; M6+ of the last 24 h in briefings. Public. |
+| **NOAA tsunami warning centers** | `feeds.tsunami` | NTWC (US/Canada coasts) and PTWC (Pacific) bulletins: warnings, advisories and watches are announced; one naming `local_words` (California) is urgent on every speaker. Public. |
+| **Breaking news** | `feeds.breaking_news` | New headlines from a few outlets (BBC World, NPR, the New York Times) every 10 minutes, scored 0–10 by the LLM (no web search; strict rubric in `world.py`). A story is announced once when it scores at least `threshold` (9) and `corroborate` (2) outlets carry it within `window_minutes`; 8+ stories go in briefings. Only new headlines are sent, so it costs cents a day. |
+| **US State Department** | `feeds.travel_advisories` | Travel advisory levels for `countries` and any country named in a calendar event (today/tomorrow): a level going up to `alert_level` or higher is announced; trip countries are in briefings. Public RSS. |
+| **Cloud status pages** | `feeds.cloud_status` | Major incidents only: AWS "Service disruption", Google Cloud high severity, Cloudflare major/critical, Azure (lists only broad incidents), OCI incidents across multiple regions. |
 | **Web search** | via the LLM | news, forecast, markets, PG&E outages/PSPS, fire weather (backstop) |
 
 ### Internet monitoring
@@ -222,6 +228,12 @@ cut into a briefing: playback is serialized. Every spoken alert is logged to
 | `airport_ground_stop`, `airport_closure` | FAA | `{airport} {code} {until} {reason} {reason_text}` |
 | `rocket_launch` | Launch Library 2 | `{rocket} {mission} {site} {time} {minutes} {direction} {show}` |
 | `<kind>`, `<kind>_urgent` (e.g. `county_alert`, `police_notice`, `package_today`) | mail watch | `{subject} {detail} {window} {source}` |
+| `world_disaster` | GDACS | `{level} {what} {where} {severity} {population}` |
+| `world_quake` | USGS | `{magnitude} {place} {level} {impact} {tsunami}` |
+| `tsunami_alert`, `tsunami_local` | NOAA | `{category} {where} {center}` |
+| `breaking_news` | news triage | `{summary} {sources} {score}` |
+| `travel_advisory` | State Department | `{country} {level} {text}` |
+| `cloud_outage` | cloud status pages | `{provider} {title}` |
 | `earthquake` | USGS | `{magnitude} {distance} {direction} {place}` |
 | `wildfire` | NIFC | `{fire} {distance} {direction} {acres} {county}` |
 | `air_quality` | IQAir | `{aqi} {band} {pollutant}` |
@@ -440,7 +452,8 @@ or a laptop. It shows:
 - locks, open doors and camera detections
 - an RF scanner line under the radar (emitters, Remote ID per hour, last drone-like detection)
 - hazards (earthquakes, wildfires, satellite heat detections, geomagnetic storms, airport ground
-  stops/closures/delays, visible launches), traffic and the cars (software update, low tires)
+  stops/closures/delays, visible launches, tsunami bulletins, breaking news, GDACS disasters,
+  major quakes worldwide, cloud outages), traffic and the cars (software update, low tires)
 - a voice panel and a scrolling alert ticker
 
 Configure it under `hud:` in `config.yaml`.

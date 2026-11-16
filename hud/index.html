@@ -108,13 +108,13 @@ header.bar::after { content: ""; position: absolute; left: 0; right: 0; bottom: 
                text-shadow: 0 0 22px rgba(110,214,255,.45); }
 .clock .time .sec { font-size: 0.42em; color: var(--cyan); margin-left: 4px; }
 .clock .date { color: var(--muted); letter-spacing: 0.24em; text-transform: uppercase; font-size: 0.74rem; margin-top: 4px; }
-.reactor { position: relative; width: min(100%, 370px); aspect-ratio: 1; }
-.reactor svg { width: 100%; height: 100%; overflow: visible; }
-.reactor .read { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; gap: 2px; }
-.reactor .soc { font: 500 clamp(2.4rem, 6vw, 3.5rem)/1 var(--f-data); text-shadow: 0 0 20px rgba(110,214,255,.6); }
-.reactor .soc small { font-size: 1.1rem; color: var(--muted); }
-.reactor .lbl { font: 0.66rem var(--f-data); letter-spacing: 0.26em; color: var(--muted); text-transform: uppercase; }
-.reactor .subl { font: 0.78rem var(--f-data); color: var(--cyan); }
+.dial { position: relative; width: min(100%, 370px); aspect-ratio: 1; }
+.dial svg { width: 100%; height: 100%; overflow: visible; }
+.dial .read { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; gap: 2px; }
+.dial .soc { font: 500 clamp(2.4rem, 6vw, 3.5rem)/1 var(--f-data); text-shadow: 0 0 20px rgba(110,214,255,.6); }
+.dial .soc small { font-size: 1.1rem; color: var(--muted); }
+.dial .lbl { font: 0.66rem var(--f-data); letter-spacing: 0.26em; color: var(--muted); text-transform: uppercase; }
+.dial .subl { font: 0.78rem var(--f-data); color: var(--cyan); }
 .r-a, .r-b, .r-c, .core { transform-box: view-box; transform-origin: 50% 50%; }
 @media (prefers-reduced-motion: no-preference) {
   .r-a { animation: rot 48s linear infinite; }
@@ -159,7 +159,7 @@ footer.foot::before { content: ""; position: absolute; left: 0; right: 0; top: 0
 [hidden] { display: none !important; }
 /* boot sequence: plays once when the first data arrives; nothing is hidden before that */
 @media (prefers-reduced-motion: no-preference) {
-  .booted .panel, .booted .reactor, .booted .flows, .booted .trace, .booted .clock {
+  .booted .panel, .booted .dial, .booted .flows, .booted .trace, .booted .clock {
     animation: rise .7s cubic-bezier(.2,.8,.2,1) both; }
   .booted .col:first-of-type .panel { animation-name: fromleft; }
   .booted .col:last-of-type .panel { animation-name: fromright; }
@@ -196,7 +196,7 @@ footer.foot::before { content: ""; position: absolute; left: 0; right: 0; top: 0
 
   <div class="centre">
     <div class="clock"><div class="time" id="time">--:--</div><div class="date" id="date"></div></div>
-    <div class="reactor" id="reactor" aria-label="Powerpack charge">
+    <div class="dial" id="dial" aria-label="Powerpack charge">
       <svg viewBox="-120 -120 240 240" aria-hidden="true">
         <defs>
           <filter id="glow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="3.2" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
@@ -387,7 +387,7 @@ footer.foot::before { content: ""; position: absolute; left: 0; right: 0; top: 0
   }
   window.addEventListener("resize", function () { drawTrace(lastHist); });
 
-  // reactor ticks + orbit
+  // dial ticks + orbit
   var tk = "";
   for (var n = 0; n < 72; n++) { var a = n * 5 * Math.PI / 180, r1 = n % 6 ? 63 : 58;
     tk += '<line x1="' + (Math.sin(a) * r1).toFixed(1) + '" y1="' + (-Math.cos(a) * r1).toFixed(1) + '" x2="' + (Math.sin(a) * 66).toFixed(1) + '" y2="' + (-Math.cos(a) * 66).toFixed(1) + '" stroke="rgba(110,214,255,.4)" stroke-width="1"/>'; }
@@ -559,7 +559,7 @@ footer.foot::before { content: ""; position: absolute; left: 0; right: 0; top: 0
     setSoc(soc || 0);
     $("soc-arc").setAttribute("stroke", socCls === "crit" ? "#ff5a52" : socCls === "warn" ? "#ffb547" : "#6ed6ff");
     var bk = e.battery_kw, charging = bk != null && bk < -0.05;
-    $("reactor").classList.toggle("charging", charging); orbitDir = charging ? 1 : -1;
+    $("dial").classList.toggle("charging", charging); orbitDir = charging ? 1 : -1;
     var sub = []; if (e.remaining_kwh != null) sub.push(e.remaining_kwh + " kWh"); if (e.runway_h != null) sub.push("~" + e.runway_h + " h runway");
     $("soc-sub").textContent = sub.join(" · ");
     tween($("f-solar"), e.solar_kw, 1); tween($("f-house"), e.house_kw, 1);

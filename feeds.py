@@ -434,22 +434,29 @@ class LowAircraft(Feed):
         ceiling = float(self.cfg.get("max_altitude_ft_agl", 1500))
         ground = float(self.cfg.get("home_elevation_ft", 820))
         linger = float(self.cfg.get("linger_minutes", 5))
+        # display-only tier: shown on the HUD radar (orange), never announced
+        show_radius = float(self.cfg.get("display_radius_miles", 3))
+        show_ceiling = float(self.cfg.get("display_max_altitude_ft_agl", 4000))
         now = dt.datetime.now()
         tracks: Dict[str, dict] = self.state.get("tracks", {})
         seen_now = set()
+        nearby = []
         for t in data.get("targets", []):
             proto = (t.get("source_protocol") or "").lower()
             if "remote" in proto or t.get("latitude") is None or t.get("altitude_ft") is None:
                 continue  # drones are handled by the airspace drone monitor
             miles = self.distance(t["latitude"], t["longitude"])
             agl = float(t["altitude_ft"]) - ground
-            if miles > radius or agl > ceiling:
-                continue
-            vid = str(t.get("vehicle_id"))
-            seen_now.add(vid)
             vtype = (t.get("vehicle_type") or "aircraft").lower()
             heli = "heli" in vtype or "rotor" in vtype
             label = t.get("callsign") or ("helicopter" if heli else "aircraft")
+            if miles > radius or agl > ceiling:
+                if miles <= show_radius and agl <= show_ceiling and not t.get("on_ground"):
+                    nearby.append({"label": label, "heli": heli, "miles": round(miles, 1), "agl": int(agl),
+                                   "dir": self.direction(t["latitude"], t["longitude"])})
+                continue
+            vid = str(t.get("vehicle_id"))
+            seen_now.add(vid)
             tr = tracks.get(vid) or {"first": now.isoformat(), "announced": None, "loiter_announced": None}
             tr.update(last=now.isoformat(), label=label, heli=heli, miles=round(miles, 1), agl=int(agl),
                       dir=self.direction(t["latitude"], t["longitude"]))
@@ -468,6 +475,8 @@ class LowAircraft(Feed):
                 tr["loiter_announced"] = now.isoformat()
                 self.emit({"kind": "aircraft_loiter", "aircraft": kind_word, "callsign": str(t.get("callsign") or ""),
                            "minutes": str(int(linger)), "direction": tr["dir"]})
+        self.state["nearby"] = sorted(nearby, key=lambda x: x["miles"])[:20]
+        self.state["nearby_at"] = now.isoformat()
         # forget aircraft that left 30+ minutes ago (a later return is a new sighting)
         cutoff = now - dt.timedelta(minutes=30)
         self.state["tracks"] = {k: v for k, v in tracks.items()

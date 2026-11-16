@@ -352,6 +352,8 @@ feeds:
     max_altitude_ft_agl: 1500
     home_elevation_ft: 820
     linger_minutes: 5          # a helicopter staying this long is announced as circling
+    display_radius_miles: 3    # HUD radar only (orange dots, never announced): other aircraft
+    display_max_altitude_ft_agl: 4000   # within this range and below this height above ground
 
 # Traffic from 511.org open data (TRAFFIC_API_KEY in .env). Terms: 511 Data
 # Disseminator Agreement. Limit is 60 requests/hour per token; this polls ~15/h

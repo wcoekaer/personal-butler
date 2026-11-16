@@ -329,9 +329,12 @@ footer.foot::before { content: ""; position: absolute; left: 0; right: 0; top: 0
       var x = cx + r * Math.cos(a), y = cy + r * Math.sin(a);
       var since = ((ang - a) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2);
       var glow = reduce ? 1 : Math.max(0.35, 1 - since / (Math.PI * 2));
-      ctx.fillStyle = b.kind === "drone" ? "rgba(255,181,71," + glow + ")" : "rgba(255,90,82," + glow + ")";
-      ctx.beginPath(); ctx.arc(x, y, 3.2, 0, 7); ctx.fill();
-      ctx.strokeStyle = ctx.fillStyle; ctx.beginPath(); ctx.arc(x, y, 3.2 + (1 - glow) * 7, 0, 7); ctx.stroke();
+      // drone amber, low aircraft (announced) red, other aircraft below the display ceiling orange
+      ctx.fillStyle = b.kind === "drone" ? "rgba(255,181,71," + glow + ")"
+                    : b.kind === "near" ? "rgba(255,122,47," + glow + ")" : "rgba(255,90,82," + glow + ")";
+      var dot = b.kind === "near" ? 2.6 : 3.2;
+      ctx.beginPath(); ctx.arc(x, y, dot, 0, 7); ctx.fill();
+      ctx.strokeStyle = ctx.fillStyle; ctx.beginPath(); ctx.arc(x, y, dot + (1 - glow) * 7, 0, 7); ctx.stroke();
     });
     ctx.fillStyle = "#6ed6ff"; ctx.beginPath(); ctx.arc(cx, cy, 2.5, 0, 7); ctx.fill();
   }
@@ -630,10 +633,12 @@ footer.foot::before { content: ""; position: absolute; left: 0; right: 0; top: 0
     blips = [];
     (a.drones || []).forEach(function (d) { if (d.recent !== false && d.miles != null && d.dir) blips.push({ kind: "drone", miles: d.miles, deg: DIRS[d.dir] || 0 }); });
     (a.aircraft || []).forEach(function (x) { if (x.miles != null && x.dir) blips.push({ kind: "air", miles: x.miles, deg: DIRS[x.dir] || 0 }); });
+    (a.nearby || []).forEach(function (x) { if (x.miles != null && x.dir) blips.push({ kind: "near", miles: x.miles, deg: DIRS[x.dir] || 0 }); });
     if (a.sensor) al += row("Remote ID sensor", a.sensor, a.sensor === "online" ? "ok-text" : "warn-text");
     (a.tfrs || []).forEach(function (f) { al += row(f.type + (f.uas ? " · drones" : ""), f.inside ? "over the house" : f.miles + " mi", f.inside ? "warn-text" : ""); if (f.inside) alvl = "warn"; });
     al += items(a.drones, function (d) { return '<li><span class="t">' + esc(d.at) + '</span><span class="warn-text">' + esc(d.model) + " · " + esc(d.distance) + (d.dir ? " " + esc(d.dir) : "") + "</span></li>"; });
     al += items(a.aircraft, function (x) { return '<li><span class="t">' + esc(x.at) + '</span><span class="crit-text">' + esc(x.what) + " · " + esc(x.agl) + " ft</span></li>"; });
+    if ((a.nearby || []).length) al += row("Aircraft below " + Number(a.nearby_ceiling || 4000).toLocaleString() + " ft", a.nearby.length + " within 3 mi");
     if (!(a.drones || []).length && !(a.aircraft || []).length) al += none("Skies clear. No drones in 24 h, no low aircraft now.");
     else ticker.push((a.drones || []).length + " drone sighting(s) in 24 h");
     // RF scanner box: one small line, highlighted only when it picked up something drone-like

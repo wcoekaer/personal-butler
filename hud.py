@@ -348,6 +348,12 @@ def build_status(j, cfg: dict, now: Optional[dt.datetime] = None) -> dict:
                                  "what": "helicopter" if tr.get("heli") else tr.get("label", "aircraft"),
                                  "agl": tr.get("agl"), "miles": tr.get("miles"), "dir": tr.get("dir")})
             out["aircraft"] = sorted(live, key=lambda x: x["miles"] if x["miles"] is not None else 99)[:5]
+            # display-only tier (orange radar dots, never announced): current snapshot only
+            at = la.state.get("nearby_at")
+            if at and now - dt.datetime.fromisoformat(at) <= live_for:
+                out["nearby"] = [{"miles": n["miles"], "dir": n["dir"], "agl": n["agl"]}
+                                 for n in la.state.get("nearby", [])]
+                out["nearby_ceiling"] = int(float(la.cfg.get("display_max_altitude_ft_agl", 4000)))
         fr = feeds.get("flight_restrictions")
         if fr:
             out["tfrs"] = [{"type": f["type"].upper(), "inside": f["inside"], "miles": f["miles"], "uas": f["uas"]}

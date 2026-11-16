@@ -466,7 +466,9 @@ It shows:
 - the battery core with solar, house and battery flows and a 24-hour energy trace
 - weather and indoor and outdoor air
 - network and WAN status
-- an airspace radar with drones and low aircraft
+- an airspace radar with drones (amber), low aircraft that are announced (red: within
+  `feeds.low_aircraft.radius_miles` and below `max_altitude_ft_agl`), and other aircraft within
+  `display_radius_miles` below `display_max_altitude_ft_agl` (orange, shown only, never announced)
 - locks, open doors and camera detections
 - an RF scanner line under the radar (emitters, Remote ID per hour, last drone-like detection)
 - hazards (earthquakes, wildfires, satellite heat detections, geomagnetic storms, airport ground

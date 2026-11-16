@@ -283,6 +283,9 @@ def personal_context(now: dt.datetime, cfg: dict) -> str:
     return "\n".join(lines)
 
 
+HOMEKIT_MEASUREMENTS = r"(Density|Level|Current Temperature|Current Relative Humidity|Air Quality)$"
+
+
 class MqttState:
     """Keeps the latest value of each subscribed MQTT topic (vehicles, battery...)."""
 
@@ -503,9 +506,13 @@ class MqttState:
             if msg.topic == self.cfg.get("homekit_events_topic", "homekit/events") and not msg.retain:
                 try:
                     hk = json.loads(payload)
-                    events = events + [{"kind": "homekit", "accessory": hk.get("accessory", ""),
-                                        "room": hk.get("room", ""), "characteristic": hk.get("characteristic", ""),
-                                        "text": str(hk.get("text", hk.get("value", "")))}]
+                    # Measurements (VOC/PM density, CO2 level, temperature, humidity, air quality) flicker
+                    # constantly; their values are kept from the state topics, but they are not events.
+                    measurement = re.compile(self.cfg.get("homekit_measurements", HOMEKIT_MEASUREMENTS), re.I)
+                    if not measurement.search(str(hk.get("characteristic", ""))):
+                        events = events + [{"kind": "homekit", "accessory": hk.get("accessory", ""),
+                                            "room": hk.get("room", ""), "characteristic": hk.get("characteristic", ""),
+                                            "text": str(hk.get("text", hk.get("value", "")))}]
                 except ValueError:
                     pass
             if self.internet and msg.topic == self.internet_topic:

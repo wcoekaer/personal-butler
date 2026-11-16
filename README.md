@@ -290,6 +290,10 @@ with the HomeKit entitlement). It publishes selected characteristics to
 reads each value from the device once at startup, then relies on change notifications. The
 30-minute refresh uses HomeKit's cache, never device reads. Polling every characteristic
 (the first version did) generated thousands of reads an hour and made HomeKit unstable.
+Jarvis turns state changes on `homekit/events` (doors, locks, leak, smoke, CO) into events;
+measurement changes (VOC/PM density, CO₂ level, temperature, humidity, air quality) are
+kept only as values (`mqtt.homekit_measurements` sets the pattern), since a sensor's
+reading can flicker hundreds of times an hour.
 
 ```bash
 # .env: JARVIS_TEAM_ID (Xcode > Settings > Accounts > your team) and JARVIS_BUNDLE_PREFIX

@@ -220,6 +220,8 @@ mqtt:
   discover_every_minutes: 60   # ... by listening to all topics (#) for a short window this often;
   discover_window_minutes: 3   # otherwise only the topics Jarvis uses are subscribed
   max_payload_bytes: 65536     # larger payloads (camera snapshots) are noted but never decoded or stored
+  # homekit_measurements: "(Density|Level|Current Temperature|Current Relative Humidity|Air Quality)$"
+  #                            # HomeKit characteristics whose changes are values, not events (default shown)
 
 # Drones near the house, from the OSP airspace server (AIRSPACE_URL and
 # AIRSPACE_API_KEY in .env). Only the house Remote ID sensor is used.

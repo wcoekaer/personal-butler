@@ -121,8 +121,10 @@ class SourceWatchdog:
             age = max(0.0, now - fresh)
             st = self.state.setdefault(s["name"], {})
             if s["kind"] != "health" and self.journal:
-                self.journal.health(s["name"], "ok" if age <= s["quiet_s"] else "error",
-                                    "last data %d min ago" % (age // 60), self.check_s * 3)
+                warming = now - self.started < self.grace_s
+                status = "ok" if age <= s["quiet_s"] else "warming" if warming else "error"
+                detail = "no data yet" if fresh <= 0 else "last data %d min ago" % (age // 60)
+                self.journal.health(s["name"], status, detail, self.check_s * 3)
             if now - self.started < self.grace_s:
                 continue
             if not st.get("down") and age > s["quiet_s"]:

@@ -443,7 +443,13 @@ PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m unittest discover -s tests -v
 
 `hud.py` and `hud/index.html` give Jarvis a wall display in the style of a holographic HUD,
 designed square-first for Apple HomeView's 1088×1088 screen; it also works on an iPad, a TV
-or a laptop. It shows:
+or a laptop.
+
+![Jarvis wall display, rendered with demo data](docs/hud.png)
+
+*The wall display at 1088 px wide, rendered with demo data.*
+
+It shows:
 
 - the battery core with solar, house and battery flows and a 24-hour energy trace
 - weather and indoor and outdoor air

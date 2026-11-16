@@ -157,13 +157,18 @@ class WeatherAlerts(Feed):
             key = "%s|%s" % (p.get("event"), (p.get("onset") or p.get("effective") or "")[:13])
             active[key] = {"event": p.get("event", "Weather alert"), "severity": p.get("severity", "Unknown"),
                            "headline": p.get("headline", ""), "ends": p.get("ends") or p.get("expires"),
-                           "instruction": (p.get("instruction") or "")[:300]}
+                           "instruction": (p.get("instruction") or "")[:300],
+                           "description": (p.get("description") or "")[:600]}
         known = self.state.get("active", {})
         for key, a in active.items():
             if key not in known:
                 ends = parse_time(a["ends"])
+                # what officials actually said (non-weather emergency messages carry it in the description)
+                text = " ".join((a.get("description") or a.get("instruction") or "").split())
+                sentences = re.split(r"(?<=[.!?])\s+", text)
                 self.emit({"kind": "weather_alert", "event": a["event"], "severity": a["severity"],
-                           "until": ends.astimezone().strftime("%A %-I %p") if ends else "further notice"})
+                           "until": ends.astimezone().strftime("%A %-I %p") if ends else "further notice",
+                           "headline": a.get("headline", ""), "details": " ".join(sentences[:2])[:300]})
         self.state["active"] = active
 
     def lines(self, now):
@@ -775,6 +780,10 @@ def build_feeds(cfg: dict) -> Dict[str, Feed]:
     out = {}
     for name, cls in FEEDS.items():
         c = fcfg.get(name) or {}
+        if getattr(cls, 'opt_in', False) and name not in fcfg:
+            continue  # outside.py feeds run only when configured
+        if any(not os.environ.get(k) for k in getattr(cls, 'requires_env', ())):
+            continue
         if name == 'solar_weather' and not c.get('enabled', False):
             continue
         if name == 'outdoor_air' and not os.environ.get('IQAIR_API_KEY'):

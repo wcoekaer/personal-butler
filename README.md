@@ -91,6 +91,10 @@ a file. `.env.example` lists them all.
 | `SCANNER_MQTT_HOST`, `SCANNER_MQTT_USERNAME`, `SCANNER_MQTT_PASSWORD` (`SCANNER_MQTT_PORT`) | the RF scanner box's broker (`scanner`) |
 | `TRAFFIC_API_KEY` | 511.org open-data token |
 | `IQAIR_API_KEY` | IQAir AirVisual (free Community plan) |
+| `OPENWEATHER_API_KEY` | OpenWeather One Call minute-by-minute rain (`feeds.rain_nowcast`) |
+| `ECOFLOW_ACCESS_KEY`, `ECOFLOW_SECRET_KEY` | EcoFlow Developer API (`feeds.ecoflow`) |
+| `FIRMS_MAP_KEY` | NASA FIRMS satellite fire detections (`feeds.satellite_fires`; free key by email) |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM` | emailing the briefing audio (`email_reports`; e.g. an iCloud app-specific password) |
 | `JARVIS_TEAM_ID`, `JARVIS_BUNDLE_PREFIX` | code signing for the JarvisHome bridge |
 
 ## 4. Configuration (`config.yaml`)
@@ -112,6 +116,10 @@ Start from `config.example.yaml`. It's annotated throughout; the main sections a
 | `watchdog` | data sources that should keep reporting, and how long "quiet" is for each |
 | `vehicles` | Tesla checks: software update ready, tire pressure below recommended |
 | `homekit` | the Siri accessory: switches, setup code, acknowledgements, quiet mode |
+| `email_reports` | email a briefing's audio (`to`, `broadcasts`, `format`) after it plays |
+| `overnight` | the window (`from`/`to`) the 07:00 overnight recap covers |
+| `hud` | wall display: port, refresh, remote publishing, `music` |
+| other | `log_file`, `archive_dir` (briefing scripts), `context_file`, `memory_count`, `flourish_probability`, `failure_message` |
 | `alerts`, `alert_homepods` | real-time alert rules (section 6) |
 
 Prompt placeholders: `{date} {time} {weekday} {part_of_day} {location} {name_instruction}
@@ -130,10 +138,17 @@ Prompt placeholders: `{date} {time} {weekday} {part_of_day} {location} {name_ins
 | **OSP airspace server** | `airspace`, `feeds.flight_restrictions`, `feeds.low_aircraft` | Drones seen by *one* Remote ID sensor (`/api/drones`, filtered by `last_sensor`), with your own drone excluded by serial; NOTAM/TFR polygons near home; live ADS-B/UAT targets |
 | **RF scanner box** | `scanner` | An Oracle-RF-Server scanner's own broker: `rid/drones` (Bluetooth/Wi-Fi Remote ID), `/scanner/wifi` (incl. OpenDroneID beacons), `/scanner/rf` (HackRF sweep), `drone_scan` (900 MHz). Remote ID within `max_miles` is announced and added to the radar/briefings; RF-only and Wi-Fi-signature verdicts are HUD-only. One flight is announced once across this and the airspace sensor. Your own drone (`airspace.ignore_serials`) is never shown; while it flies, RF/Wi-Fi verdicts are attributed to it. |
 | **511.org traffic** | `traffic` | Accidents and full road closures in one county (incidents API + WZDx work zones). **Limit 60 requests/hour per token**: Jarvis polls about 15/h, caps at 40/h (persisted), honours `RateLimit-Remaining`/429. Per the 511 Data Disseminator Agreement §5.b, spoken output says *"Data provided by 511.org"*; no 511 marks in naming. Responses echo the token, so URLs and bodies are never logged. |
-| **National Weather Service** | `feeds.weather_alerts` | `api.weather.gov/alerts/active?point=lat,lon`, public. Moderate+ alerts are announced; minor ones appear in briefings. |
+| **National Weather Service** | `feeds.weather_alerts` | `api.weather.gov/alerts/active?point=lat,lon`, public. Moderate+ alerts are announced; minor ones appear in briefings. The same feed carries official **non-weather emergency messages** relayed through the NWS (Evacuation Immediate, Civil Danger Warning, Shelter In Place …); the `emergency-message` rule speaks those as urgent, on every speaker, even in quiet mode. |
 | **USGS earthquakes** | `feeds.earthquakes` | real-time GeoJSON; `tiers` = (min magnitude, max miles) |
 | **Wildfires** | `feeds.wildfires` | NIFC WFIGS current incidents (public ArcGIS, includes CAL FIRE incidents). CAL FIRE's own API blocks automated clients. |
 | **IQAir** | `feeds.outdoor_air` | free Community plan: 10,000 calls/month; polled every 30 min (~1,450/month); credited as IQAir when spoken |
+| **OpenWeather** | `feeds.rain_nowcast` | One Call minute-by-minute precipitation: "rain in about 20 minutes" (`lead_minutes`, `threshold_mm_per_hour`); ~144 calls/day |
+| **EcoFlow power station** | `feeds.ecoflow` | EcoFlow Developer API (signed requests): charge, AC in/out, solar, extra batteries, fault codes. Announces AC input lost/restored, a new fault code (once per code; a code that drops in and out of the API doesn't re-alert), and charge crossing `thresholds`. `acknowledged_faults` (field: code) hides a checked, latched code. |
+| **NASA FIRMS** | `feeds.satellite_fires` | VIIRS (NOAA-20/21) and MODIS fire detections in a box around home; US data arrives within minutes of a satellite pass. New detections within `alert_miles` are announced, one per area per 12 h; within `watch_miles` they're in briefings and on the HUD. Free key: 5,000 requests/10 min. |
+| **NOAA SWPC** | `feeds.space_weather` | `services.swpc.noaa.gov` NOAA scales: a geomagnetic storm at `alert_level` (G3) or above is announced (Starlink/GPS may degrade; auroras mentioned from `aurora_level`), a forecast storm at that level once; G2+ in briefings. Public. |
+| **FAA NAS status** | `feeds.airports` | `nasstatus.faa.gov` airport status: ground stops and closures at `airports` are announced; ground delay programs and delays are in briefings and on the HUD. Public. |
+| **Launch Library 2** | `feeds.launches` | Upcoming launches from `location_ids` (11 = Vandenberg). A launch that should be visible (dark or twilight sky at home, by the sun's altitude) gets a heads-up `lead_minutes` ahead with the compass direction; twilight launches are flagged for the glowing plume. Free tier 15 requests/hour: polled every 2 h, every 10 min within 3 h of a launch. |
+| **Mail** (JarvisContext) | `feeds.mail_watch` | Messages from chosen senders only, in the inbox and Trash (`mailboxes`; alerts are often read and deleted quickly), last `days`. `rules` are tried in order: `sender` substring, optional `subject` regex, event `kind`, `urgent_words` that make it `<kind>_urgent`, `dedupe` (one announcement per cooldown for the rule), `subject_strip` (regex for list prefixes), `summary: false` (don't append the first sentences of the message). A kind without an alert rule is listed in briefings only. E.g. county emergency alerts, police notices (alerts spoken, community messages in briefings), "UPS: Package Scheduled for Delivery Today" (with the delivery window). Needs Mail running. |
 | **Web search** | via the LLM | news, forecast, markets, PG&E outages/PSPS, fire weather (backstop) |
 
 ### Internet monitoring
@@ -174,7 +189,8 @@ on the HUD while they last.
 
 Each rule in `alerts` matches an event `kind`, picks one of its `messages` at random and
 speaks it on `alert_homepods` (or the rule's `homepods`/`volume`). Optional filters:
-`types`, `cameras`, `ports`, `threshold`, `severities`, `max_miles`, `hours`, and
+`types`, `cameras`, `ports`, `threshold`, `severities`, `events`/`exclude_events` (event names, e.g. NWS),
+`max_miles`, `hours`, and
 `accessory`/`room`/`characteristic`/`text` for HomeKit events. `cooldown_minutes` applies
 per rule. Phrases without per-event placeholders are synthesized once and cached
 (`~/Library/Caches/jarvis/alerts/`), so they play within a couple of seconds. Alerts never
@@ -195,7 +211,17 @@ cut into a briefing: playback is serialized. Every spoken alert is logged to
 | `source_quiet`, `source_back` | watchdog | `{detail} {sources} {minutes}` |
 | `vehicle_update`, `vehicle_tires_low` | Tesla vehicle data | `{vehicle} {version} {status_text} {duration} {detail}` |
 | `traffic_accident`, `road_closure` | 511.org | `{text} {distance} {severity}` |
-| `weather_alert` | NWS | `{event} {severity} {until}` |
+| `weather_alert` | NWS (incl. emergency messages) | `{event} {severity} {until} {headline} {details}` |
+| `rain_soon` | OpenWeather | `{when}` |
+| `internet_down`, `internet_up`, `internet_degraded` | ping data (section 5) | `{detail}` |
+| `tamper` | UniFi sensor | `{device}` |
+| `reading_alert` | `mqtt.topics` ranges | `{label} {value} {range}` |
+| `ecoflow_ac_lost`, `ecoflow_ac_restored`, `ecoflow_fault`, `ecoflow_low` | EcoFlow | `{device} {soc} {detail}` |
+| `satellite_fire` | NASA FIRMS | `{distance} {direction} {when} {satellite} {count}` |
+| `space_weather_storm`, `space_weather_watch` | NOAA SWPC | `{level} {strength} {aurora} {day}` |
+| `airport_ground_stop`, `airport_closure` | FAA | `{airport} {code} {until} {reason} {reason_text}` |
+| `rocket_launch` | Launch Library 2 | `{rocket} {mission} {site} {time} {minutes} {direction} {show}` |
+| `<kind>`, `<kind>_urgent` (e.g. `county_alert`, `police_notice`, `package_today`) | mail watch | `{subject} {detail} {window} {source}` |
 | `earthquake` | USGS | `{magnitude} {distance} {direction} {place}` |
 | `wildfire` | NIFC | `{fire} {distance} {direction} {acres} {county}` |
 | `air_quality` | IQAir | `{aqi} {band} {pollutant}` |
@@ -280,7 +306,16 @@ prompt, which the boot-time daemon can't. `helpers/JarvisContext` is a tiny Swif
 every 5 minutes in your login session by `./install.sh context`. It writes
 `~/Library/Caches/jarvis/context.json` (events through tomorrow, reminders due or overdue,
 Mail unread count). Data older than 30 minutes is ignored. Rebuilding changes its ad-hoc
-signature, so macOS asks for permission again.
+signature, so macOS asks for permission again (`./helpers/build-context.sh`; the agent picks up
+the new build on its next run).
+
+**Mail watch:** with `feeds.mail_watch`, the daemon writes the watched senders to
+`~/Library/Caches/jarvis/mail-watch.json`; the helper then adds the inbox messages from just
+those senders in the last `days`, from the inbox and Trash by default (id, subject, sender,
+received, a short excerpt), to the snapshot as `mail_watch`. Nothing else from Mail is read.
+Keep sender patterns specific (a full address): Mail fetches each matching message's text,
+which for a large IMAP Trash can take minutes. Mail must be running, and macOS asks
+once for permission to control Mail.
 
 ## 9. Make Jarvis speak from anything on MQTT
 
@@ -403,7 +438,9 @@ or a laptop. It shows:
 - network and WAN status
 - an airspace radar with drones and low aircraft
 - locks, open doors and camera detections
-- hazards, traffic and the car
+- an RF scanner line under the radar (emitters, Remote ID per hour, last drone-like detection)
+- hazards (earthquakes, wildfires, satellite heat detections, geomagnetic storms, airport ground
+  stops/closures/delays, visible launches), traffic and the cars (software update, low tires)
 - a voice panel and a scrolling alert ticker
 
 Configure it under `hud:` in `config.yaml`.

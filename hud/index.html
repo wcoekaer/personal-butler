@@ -672,6 +672,8 @@ footer.foot::before { content: ""; position: absolute; left: 0; right: 0; top: 0
     var h = s.hazards || {}, tr = s.traffic || {}, ol = "", olvl = "";
     (h.quakes || []).forEach(function (q) { ol += row("M" + q.mag + " " + q.place, q.miles + " mi " + q.dir, "warn-text"); olvl = "warn"; ticker.push("Earthquake M" + q.mag + " " + q.place); });
     (h.fires || []).forEach(function (f) { ol += row(f.name, f.miles + " mi " + f.dir + (f.contained != null ? " · " + f.contained + "%" : ""), f.miles <= 25 ? "warn-text" : ""); if (f.miles <= 25) olvl = "warn"; });
+    (h.notices || []).forEach(function (x) { ol += row(x.label, x.value, x.level ? x.level + "-text" : "");
+      if (x.level) { olvl = olvl || x.level; ticker.push(x.label + " · " + x.value); } });
     if (tr.updated) {
       ol += row("Traffic · " + tr.updated, (tr.accidents || []).length + " accidents · " + (tr.closures || []).length + " closures");
       ol += items((tr.accidents || []).slice(0, 3), function (x) { return '<li class="plain"><span class="warn-text">' + esc(x.text) + (x.miles != null ? " · " + x.miles + " mi" : "") + "</span></li>"; });

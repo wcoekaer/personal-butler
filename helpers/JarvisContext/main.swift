@@ -1,5 +1,5 @@
-// JarvisContext: snapshots the user's calendar, reminders and Mail unread
-// count to ~/Library/Caches/jarvis/context.json for the Jarvis daemon.
+// JarvisContext: snapshots the user's calendar, reminders, Mail unread count and watched-sender messages
+// to ~/Library/Caches/jarvis/context.json for the Jarvis daemon.
 //
 // It runs as a small app bundle in the user's login session (LaunchAgent,
 // every few minutes) because macOS only grants Calendar/Reminders access to
@@ -88,12 +88,67 @@ func mailUnread() -> Int? {
     return result.map { Int($0.int32Value) }
 }
 
+let dir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Caches/jarvis")
+
+// Messages (inbox and Trash by default) from the senders Jarvis watches (mail-watch.json, written by the
+// daemon from feeds.mail_watch): id, subject, sender, received time and a short
+// excerpt. Nothing else from Mail is read.
+func mailWatch() -> [[String: Any]]? {
+    guard let raw = try? Data(contentsOf: dir.appendingPathComponent("mail-watch.json")),
+          let cfg = (try? JSONSerialization.jsonObject(with: raw)) as? [String: Any],
+          let senders = cfg["senders"] as? [String], !senders.isEmpty else { return nil }
+    let running = NSWorkspace.shared.runningApplications.contains { $0.bundleIdentifier == "com.apple.mail" }
+    guard running else { return nil }
+    let days = (cfg["days"] as? Int) ?? 3
+    let chars = (cfg["excerpt_chars"] as? Int) ?? 1500
+    let quoted = senders.map { "\"" + $0.replacingOccurrences(of: "\\", with: "").replacingOccurrences(of: "\"", with: "") + "\"" }
+    // which mailboxes to look in: inbox and Trash by default (alerts are often read and deleted quickly)
+    let names: [String: String] = ["inbox": "inbox", "trash": "trash mailbox", "junk": "junk mailbox"]
+    let boxes = ((cfg["mailboxes"] as? [String]) ?? ["inbox", "trash"]).compactMap { names[$0.lowercased()] }
+    let source = """
+    tell application "Mail"
+        set out to {}
+        set cutoff to (current date) - (\(days) * days)
+        repeat with b in {\((boxes.isEmpty ? ["inbox"] : boxes).joined(separator: ", "))}
+            repeat with addr in {\(quoted.joined(separator: ", "))}
+                set ms to (messages of b whose sender contains (addr as text) and date received > cutoff)
+                repeat with m in ms
+                    set c to ""
+                    try
+                        set c to content of m
+                        if (length of c) > \(chars) then set c to text 1 thru \(chars) of c
+                    end try
+                    set end of out to {message id of m, subject of m, sender of m, ((date received of m) as «class isot» as string), c}
+                end repeat
+            end repeat
+        end repeat
+        return out
+    end tell
+    """
+    var err: NSDictionary?
+    guard let result = NSAppleScript(source: source)?.executeAndReturnError(&err), err == nil else {
+        FileHandle.standardError.write(("mail watch: AppleScript error \(err ?? [:])\n").data(using: .utf8)!)
+        return nil
+    }
+    var out: [[String: Any]] = []
+    let n = result.numberOfItems
+    if n > 0 {
+        for i in 1...n {
+            guard let item = result.atIndex(i), item.numberOfItems >= 5 else { continue }
+            out.append(["id": item.atIndex(1)?.stringValue ?? "", "subject": item.atIndex(2)?.stringValue ?? "",
+                        "sender": item.atIndex(3)?.stringValue ?? "", "received": item.atIndex(4)?.stringValue ?? "",
+                        "excerpt": item.atIndex(5)?.stringValue ?? ""])
+        }
+    }
+    return out
+}
+
 var snapshot: [String: Any] = ["generated": iso.string(from: Date())]
 if let e = events() { snapshot["events"] = e } else { snapshot["calendar_access"] = "denied" }
 if let r = reminders() { snapshot["reminders"] = r } else { snapshot["reminders_access"] = "denied" }
 if let m = mailUnread() { snapshot["mail_unread_inbox"] = m }
+if let w = mailWatch() { snapshot["mail_watch"] = w }
 
-let dir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Caches/jarvis")
 try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
 let data = try JSONSerialization.data(withJSONObject: snapshot, options: [.prettyPrinted, .sortedKeys])
 try data.write(to: dir.appendingPathComponent("context.json"), options: .atomic)

@@ -277,6 +277,29 @@ feeds:
     thresholds: [30, 15]       # system charge %, announced once per crossing
     # acknowledged_faults:     # field: code — a latched code you've checked; kept out of
     #   bmsMaster.errCode: 23  # alerts, briefings and the HUD (a different code still alerts)
+  satellite_fires:             # NASA FIRMS satellite fire detections (FIRMS_MAP_KEY in .env; free)
+    poll_seconds: 300
+    sources: [VIIRS_NOAA20_NRT, VIIRS_NOAA21_NRT, MODIS_NRT]
+    watch_miles: 25            # listed in briefings and on the HUD
+    alert_miles: 10            # announced
+    area_miles: 3              # one announcement per area per 12 hours
+  space_weather:               # NOAA SWPC geomagnetic storm level, now and 3-day forecast
+    poll_seconds: 900
+    alert_level: 3             # G3+ announced (Starlink / GPS may degrade); G2+ in briefings
+    aurora_level: 4            # mention possible auroras from this level
+  airports:                    # FAA NAS status: ground stops and closures announced, delay programs in briefings
+    poll_seconds: 300
+    airports: [SFO]          # <-- your airports (FAA codes)
+  launches:                    # Launch Library 2 (free: 15 requests/hour; Jarvis polls every 2 h, 10 min near a launch)
+    poll_seconds: 7200
+    location_ids: [11]         # 11 = Vandenberg SFB
+    lead_minutes: 30           # heads-up this long before a launch that should be visible (dark or twilight sky)
+  # mail_watch:                # inbox messages from chosen senders (JarvisContext helper; Mail must be running)
+  #   poll_seconds: 60
+  #   days: 3
+  #   rules:
+  #     - {name: County alerts, sender: alerts@example.gov, kind: county_alert, urgent_words: [evacuat, "shelter[ -]in[ -]place"]}
+  #     - {name: UPS, sender: mcinfo@ups.com, subject: "Scheduled for Delivery Today", kind: package_today, dedupe: true}
   rain_nowcast:                # OpenWeather One Call minute-by-minute rain (OPENWEATHER_API_KEY)
     poll_seconds: 600          # ~144 calls/day; keep the OpenWeather daily limit at 1,000
     lead_minutes: 30           # announce rain due within this many minutes
@@ -410,8 +433,70 @@ alerts:
       - "Pardon the interruption. There is movement at the {camera} camera."
       - "A brief note, sir: the {camera} camera has picked up some movement."
   # External feeds (see feeds:)
+  # Official emergency messages relayed through the NWS (evacuations, shelter in place ...): urgent, all speakers
+  - name: emergency-message
+    kind: weather_alert
+    events: [Evacuation Immediate, Civil Danger Warning, Civil Emergency Message, Shelter In Place Warning, Fire Warning, Law Enforcement Warning, Hazardous Materials Warning, Local Area Emergency, 911 Telephone Outage]
+    urgent: true
+    cooldown_minutes: 0
+    homepods: [Kitchen]                        # <-- all your speakers
+    messages:
+      - "Urgent, sir: an official {event} has been issued for this area. {details}"
+  # outside.py feeds
+  - name: satellite-fire
+    kind: satellite_fire
+    cooldown_minutes: 0
+    messages:
+      - "Pardon the interruption, sir: a satellite has detected a possible fire about {distance} to the {direction}, at {when}. It could be a new fire or a controlled burn."
+  - name: space-weather-storm
+    kind: space_weather_storm
+    cooldown_minutes: 0
+    hours: {from: "07:00", to: "23:00"}
+    messages:
+      - "A note from above, sir: a {strength} geomagnetic storm, {level}, is under way; Starlink and GPS may be less reliable for a while.{aurora}"
+  - name: space-weather-watch
+    kind: space_weather_watch
+    cooldown_minutes: 0
+    hours: {from: "08:00", to: "21:00"}
+    messages:
+      - "For your information, sir: NOAA expects a {strength} geomagnetic storm, {level}, on {day}."
+  - name: airport-ground-stop
+    kind: airport_ground_stop
+    cooldown_minutes: 0
+    messages:
+      - "For your information, sir: the FAA has a ground stop at {airport} airport{reason_text}, {until}."
+  - name: airport-closure
+    kind: airport_closure
+    cooldown_minutes: 0
+    messages:
+      - "For your information, sir: {airport} airport is closed, {until}."
+  - name: rocket-launch
+    kind: rocket_launch
+    cooldown_minutes: 0
+    messages:
+      - "Something to look out for, sir: a {rocket} launches from {site} at {time}, in about {minutes} minutes. It should be visible low in the {direction}.{show}"
+  - name: county-alert-urgent
+    kind: county_alert_urgent
+    urgent: true
+    cooldown_minutes: 0
+    homepods: [Kitchen]                        # <-- all your speakers
+    messages:
+      - "Urgent, sir: the county has sent an alert: {subject}. {detail}"
+  - name: county-alert
+    kind: county_alert
+    cooldown_minutes: 0
+    hours: {from: "07:00", to: "22:00"}
+    messages:
+      - "A notice from the county, sir: {subject}. {detail}"
+  - name: package-today
+    kind: package_today
+    cooldown_minutes: 180
+    hours: {from: "07:00", to: "20:00"}
+    messages:
+      - "A parcel note, sir: UPS has a package scheduled for delivery today{window}."
   - name: weather-alert
     kind: weather_alert
+    exclude_events: [Evacuation Immediate, Civil Danger Warning, Civil Emergency Message, Shelter In Place Warning, Fire Warning, Law Enforcement Warning, Hazardous Materials Warning, Local Area Emergency, 911 Telephone Outage]   # see emergency-message
     severities: [Moderate, Severe, Extreme]   # Minor ones only appear in briefings
     cooldown_minutes: 0
     messages:

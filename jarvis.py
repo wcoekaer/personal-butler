@@ -37,6 +37,7 @@ from typing import Dict, List, Optional, Tuple
 import yaml
 
 import feeds as feedmod
+import outside  # noqa: F401 -- registers the extra outside-world feeds
 import scanner as scannermod
 import vehicles as vehmod
 import watchdog as watchmod
@@ -1828,6 +1829,10 @@ class Alerter:
         if "max_miles" in rule and (ev.get("miles") is None or ev["miles"] > float(rule["max_miles"])):
             return False
         if rule.get("severities") and ev.get("severity") not in rule["severities"]:
+            return False
+        if rule.get("events") and ev.get("event") not in rule["events"]:
+            return False
+        if rule.get("exclude_events") and ev.get("event") in rule["exclude_events"]:
             return False
         plurals = {"accessory": "accessories", "room": "rooms", "characteristic": "characteristics", "text": "texts"}
         for field in ("accessory", "room", "characteristic", "text"):

@@ -208,6 +208,12 @@ def build_status(j, cfg: dict, now: Optional[dt.datetime] = None) -> dict:
             for f in sorted(w.state.get("fires", {}).values(), key=lambda f: f["miles"])[:5]:
                 out["fires"].append({"name": f["name"], "miles": f["miles"], "dir": f["dir"],
                                      "acres": f.get("acres"), "contained": f.get("contained")})
+        # outside.py feeds: satellite heat, geomagnetic storm, airport programs, visible launches
+        out["notices"] = []
+        for name in ("satellite_fires", "space_weather", "airports", "launches"):
+            f = feeds.get(name)
+            if f is not None and hasattr(f, "hud_items"):
+                out["notices"].extend(f.hud_items(now))
         return out
     s["hazards"] = _safe(hazards, {})
 

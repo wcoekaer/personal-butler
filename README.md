@@ -453,13 +453,15 @@ PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m unittest discover -s tests -v
 
 ### Wall display (HUD)
 
-`hud.py` and `hud/index.html` give Jarvis a wall display in the style of a holographic HUD,
-designed square-first for Apple HomeView's 1088×1088 screen; it also works on an iPad, a TV
-or a laptop.
+`hud.py` and `hud/index.html` give Jarvis a wall display in the style of a holographic HUD.
+The layout is a fixed 1920×1080 stage centred in the browser window, made for a 1080p screen
+in full-screen mode. A smaller window (a laptop, an iPad, HomeView's 1088×1088 screen) shows
+the whole stage scaled down to fit, and a phone gets one scrolling column. Each column has a
+fixed height: if a panel has more than fits, its last lines fade out at the bottom.
 
 ![Jarvis wall display, rendered with demo data](docs/hud.png)
 
-*The wall display at 1088 px wide, rendered with demo data.*
+*The wall display at 1920×1080, rendered with demo data.*
 
 It shows:
 

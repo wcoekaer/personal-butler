@@ -1,4 +1,4 @@
-# Jarvis at home
+# Personal Butler
 
 A spoken home assistant for macOS and Apple HomePods, in the style of a calm British AI
 butler.
@@ -6,8 +6,9 @@ butler.
 > Not affiliated with, endorsed by or sponsored by Marvel or Disney. Any similarity to
 > fictional characters is incidental; all trademarks belong to their owners.
 
-The assistant's name is configurable (`assistant_name`, default **Hearth**); this project and
-its commands are called Jarvis at home / `jarvis`. It runs on a Mac as a background service and:
+The assistant's name is configurable (`assistant_name`, default **Hearth**). The project's
+files and command are still named `jarvis` (`jarvis.py`, `./jarvis`). It runs on a Mac as a
+background service and:
 
 - **Scheduled briefings.** On a schedule (e.g. hourly 07:00–21:00), it writes a short update
   with an LLM (with web search), converts it to speech and streams it to chosen HomePods:
@@ -64,8 +65,8 @@ brew install python ffmpeg xcodegen
 ## 2. Install
 
 ```bash
-git clone https://github.com/wcoekaer/jarvis-at-home.git ~/git/jarvis
-cd ~/git/jarvis
+git clone https://github.com/wcoekaer/personal-butler.git ~/git/personal-butler
+cd ~/git/personal-butler
 cp .env.example .env && chmod 600 .env        # fill in keys (section 3)
 cp config.example.yaml config.yaml            # fill in every "<--" value (section 4)
 

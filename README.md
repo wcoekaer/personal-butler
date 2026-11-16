@@ -106,7 +106,7 @@ Start from `config.example.yaml`. It's annotated throughout; the main sections a
 | `homepods`, `location`, `listener_name`, `name_probability` | where it plays, where you are, how often it uses your name |
 | `llm`, `tts`, `playback` | model, effort, web search; voice (`echo`, British butler instructions, speed 1.1); volume and prep time |
 | `prompt`, `segments`, `default_segment` | the briefing prompt and time-of-day extras (07:00 day ahead and overnight recap, midday markets, late-afternoon traffic, 21:00 energy and wind-down) |
-| `broadcasts` | schedules: `every_minutes`+`start`/`end` or `times`; `days`; per-broadcast `homepods`/`prompt`; `on_demand: true` for Siri-only |
+| `broadcasts` | schedules: `every_minutes`+`start`/`end` or `times`; `days`; per-broadcast `homepods`/`prompt`; `on_demand: true` for Siri-only; `only_if_issues: true` stays silent unless the script reports something (the model answers ALL CLEAR; a manual run speaks `all_clear` instead), used by the 22:00 check |
 | `mqtt.topics` | which MQTT values go into the briefing (`field` = dotted JSON path, `scale`/`offset`/`decimals`/`unit`, `include`/`exclude`/`only_values`, `count_value`, `max_age_minutes`) |
 | `mqtt.unifi`, `mqtt.energy`, `mqtt.internet` | UniFi Protect tracker, Powerpack daily totals and battery thresholds, ping-based internet monitor |
 | `mqtt.say_topic`, `mqtt.brief_topic` | let other systems make Jarvis speak or run a briefing (section 9) |

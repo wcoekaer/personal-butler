@@ -1694,8 +1694,19 @@ async def deliver(audio, homepods, volume, aid=None):
 # --------------------------------------------------------------------------- broadcast
 
 
+ALL_CLEAR_DEFAULT = "All clear, sir. Everything is locked and quiet."
+
+
+def is_all_clear(text: str) -> bool:
+    """The model's "nothing needs attention" answer for only_if_issues broadcasts."""
+    return re.sub(r"[^a-z]", "", (text or "").lower()) in ("allclear", "nothing", "none")
+
+
 def prepare_broadcast(b: dict, cfg: dict, when: dt.datetime, workdir: Path,
-                      archive_text: bool = True):
+                      archive_text: bool = True, allow_silence: bool = False):
+    """Script + audio for a broadcast. With b["only_if_issues"], a scheduled run
+    (allow_silence) whose script is the ALL CLEAR answer, or whose LLM call fails,
+    returns audio None and nothing is played; other runs speak b["all_clear"]."""
     facts = briefing_facts(dt.datetime.now(), cfg, b['homepods']) if JOURNAL else None
     prompt = render_prompt(b["prompt"], when, cfg, facts)
     log.debug("[%s] prompt:\n%s", b["name"], prompt)
@@ -1704,11 +1715,18 @@ def prepare_broadcast(b: dict, cfg: dict, when: dt.datetime, workdir: Path,
         text, mentioned = result if facts is not None else (result, [])
     except Exception:
         log.exception("[%s] LLM request failed", b["name"])
+        if b.get("only_if_issues") and allow_silence:
+            return "", None, None
         fallback = cfg.get("failure_message")
         if not fallback:
             raise
         text = fallback
         mentioned = []
+    if b.get("only_if_issues") and is_all_clear(text):
+        if allow_silence:
+            log.info("[%s] nothing needs attention; staying silent", b["name"])
+            return text, None, None
+        text, mentioned = b.get("all_clear") or ALL_CLEAR_DEFAULT, []
     log.info("[%s] script:\n%s", b["name"], text)
     aid = JOURNAL.announcement('briefing', b['name'], text, b['homepods'], facts=mentioned) if JOURNAL and archive_text else None
     try:
@@ -1720,10 +1738,13 @@ def prepare_broadcast(b: dict, cfg: dict, when: dt.datetime, workdir: Path,
 
 
 async def run_broadcast(b: dict, cfg: dict, when: dt.datetime, play_audio: bool = True,
-                        respect_quiet: bool = False) -> None:
+                        respect_quiet: bool = False, scheduled: bool = False) -> None:
     lead = int(cfg["playback"].get("prepare_seconds", 180))
     with tempfile.TemporaryDirectory(prefix="jarvis-") as tmp:
-        text, audio, aid = await asyncio.to_thread(prepare_broadcast, b, cfg, when, Path(tmp), play_audio)
+        text, audio, aid = await asyncio.to_thread(prepare_broadcast, b, cfg, when, Path(tmp), play_audio,
+                                                   scheduled)
+        if audio is None:                   # only_if_issues broadcast with nothing to report
+            return
         if not play_audio:
             keep = BASE_DIR / ("last-%s.wav" % b["name"])
             shutil.copy(audio, keep)
@@ -2914,7 +2935,7 @@ async def maintenance(cfg, alerter):
 
 async def safe_run(b: dict, cfg: dict, when: dt.datetime) -> None:
     try:
-        await run_broadcast(b, cfg, when, respect_quiet=True)
+        await run_broadcast(b, cfg, when, respect_quiet=True, scheduled=True)
     except Exception:
         log.exception("[%s] broadcast failed", b["name"])
 

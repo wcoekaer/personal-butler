@@ -1024,9 +1024,11 @@ broadcasts:
   - name: security
     times: ["22:00"]
     homepods: [BasementHP, PrimaryHP, LivingHP]
+    only_if_issues: true       # silent when nothing needs attention (a manual run says "all clear")
+    all_clear: "All clear, sir. Everything is locked and quiet. Good night."
     prompt: |
-      It is {time} on {date}. Deliver a concise spoken security sweep of the
-      house, about 30 seconds, as Jarvis. {name_instruction}
+      It is {time} on {date}. You are Jarvis doing the last check of the house
+      for the night. {name_instruction}
 
       Home and network status (live):
       <home>
@@ -1038,18 +1040,20 @@ broadcasts:
       {overnight_security}
       </overnight>
 
-      Cover, in this order:
-      1. Locks: name every HomeKit lock that is unlocked; if all are locked,
-         say so in one phrase.
-      2. Doors, gates and windows: name any door or gate contact sensor that
-         is open. Ignore Starlink and Powerpack flags here.
-      3. Network: the internet if it is DOWN or DEGRADED or had outages today,
-         any gateway WAN port that is OFFLINE (link lost), or a Starlink Outage
-         or Degraded sensor that is open (open means the flag is on).
-      4. Cameras: people detected in the log, by camera and time; skip if none.
-      5. Any ALARM, HomeKit SAFETY line, or low battery on a lock.
-      Never mention grid or off-grid status. If it is after 9 PM, end with a
-      brief good-night line; otherwise a short sign-off. No preamble.
+      Report ONLY things that need attention tonight:
+      - a HomeKit lock that is unlocked
+      - an exterior door, gate or garage door that is open (ignore Starlink and
+        Powerpack flags)
+      - the internet DOWN, or a gateway WAN port OFFLINE right now
+      - any ALARM or HomeKit SAFETY line (smoke, CO, leak, tampering)
+      - a person detected by a camera in the last 30 minutes
+      - a low battery on a lock
+      - a data source listed as not reporting
+      Do not mention anything that is normal or fine, and do not recap the day,
+      the weather, energy or the battery. If something needs attention, say it
+      in one or two short sentences, then a brief good-night. If nothing needs
+      attention, reply with exactly: ALL CLEAR
+      Never mention grid or off-grid status. No preamble.
 
   # "Hey Siri, turn on Jarvis Energy": on demand only.
   - name: energy

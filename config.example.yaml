@@ -10,6 +10,8 @@ homepods:
   - Kitchen
 
 location: "Springfield, California 90000"   # <-- your town
+assistant_name: Hearth          # what the assistant is called: spoken persona, {assistant_name} in prompts,
+                                # the HUD wordmark, Siri switch default; pick your own
 listener_name: Alex                 # <-- your first name
 name_probability: 0.35         # chance a given briefing greets you by name
 
@@ -389,20 +391,20 @@ hud:
     identity: ~/.ssh/id_ed25519
     path: /var/www/example/jarvis
 
-# Apple Home / Siri: Jarvis appears in the Home app as a switch. "Hey Siri,
-# turn on Jarvis Update" runs the briefing immediately (it switches itself off).
+# Apple Home / Siri: the assistant appears in the Home app as a switch. "Hey Siri,
+# turn on Hearth Update" runs the briefing immediately (it switches itself off).
 # Pairing code is logged on first start (or set pincode: "123-45-678").
 homekit:
   enabled: true
   # One accessory, several switches (each has its own Siri name). The first
-  # keeps the original "Jarvis Update" pairing. Briefing switches run the named
+  # keeps the original "Hearth Update" pairing. Briefing switches run the named
   # broadcast immediately and switch back off; the quiet switch holds quiet mode
   # (no scheduled updates or non-urgent alerts) until switched off or quiet_until.
   switches:
-    - {name: Jarvis Update, broadcast: hourly}
-    - {name: Jarvis Security, broadcast: security}
-    - {name: Jarvis Energy, broadcast: energy}
-    - {name: Jarvis Quiet, type: quiet}
+    - {name: Hearth Update, broadcast: hourly}
+    - {name: Hearth Security, broadcast: security}
+    - {name: Hearth Energy, broadcast: energy}
+    - {name: Hearth Quiet, type: quiet}
   quiet_until: "07:00"
   # homepods: [Kitchen]        # where on-demand briefings play (default: the broadcast's)
   port: 51826
@@ -997,7 +999,7 @@ broadcasts:
     homepods: [BasementHP, PrimaryHP, LivingHP]
     prompt: |
       It is {time} on {date}. Deliver a spoken weekly recap, about 90 seconds,
-      as Jarvis, in a relaxed Sunday-evening tone. {name_instruction}
+      as {assistant_name}, in a relaxed Sunday-evening tone. {name_instruction}
 
       The week's facts:
       <week>
@@ -1020,14 +1022,14 @@ broadcasts:
       If traffic is mentioned, say "data provided by 511.org". Close with a
       brief, understated sign-off.
 
-  # 22:00 security sweep; also "Hey Siri, turn on Jarvis Security" at any time.
+  # 22:00 security sweep; also "Hey Siri, turn on Hearth Security" at any time.
   - name: security
     times: ["22:00"]
     homepods: [BasementHP, PrimaryHP, LivingHP]
     only_if_issues: true       # silent when nothing needs attention (a manual run says "all clear")
     all_clear: "All clear, sir. Everything is locked and quiet. Good night."
     prompt: |
-      It is {time} on {date}. You are Jarvis doing the last check of the house
+      It is {time} on {date}. You are {assistant_name} doing the last check of the house
       for the night. {name_instruction}
 
       Home and network status (live):
@@ -1058,13 +1060,13 @@ broadcasts:
       attention, reply with exactly: ALL CLEAR
       Never mention grid or off-grid status. No preamble.
 
-  # "Hey Siri, turn on Jarvis Energy": on demand only.
+  # "Hey Siri, turn on Hearth Energy": on demand only.
   - name: energy
     on_demand: true
     homepods: [BasementHP, PrimaryHP, LivingHP]
     prompt: |
       It is {time} on {date} in {location}. Deliver a concise spoken energy
-      briefing, about 30 seconds, as Jarvis. {name_instruction}
+      briefing, about 30 seconds, as {assistant_name}. {name_instruction}
 
       Live status:
       <home>

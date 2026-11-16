@@ -6,7 +6,8 @@ butler.
 > Not affiliated with, endorsed by or sponsored by Marvel or Disney. Any similarity to
 > fictional characters is incidental; all trademarks belong to their owners.
 
-It runs on a Mac as a background service and:
+The assistant's name is configurable (`assistant_name`, default **Hearth**); this project and
+its commands are called Jarvis at home / `jarvis`. It runs on a Mac as a background service and:
 
 - **Scheduled briefings.** On a schedule (e.g. hourly 07:00–21:00), it writes a short update
   with an LLM (with web search), converts it to speech and streams it to chosen HomePods:
@@ -16,7 +17,7 @@ It runs on a Mac as a background service and:
   internet down, a smoke, CO or leak alarm, the home battery crossing 50% or 30%, a drone near
   the house, an accident or road closure, a weather warning, an earthquake, a wildfire, poor
   outdoor air, a new flight restriction, a low or circling helicopter.
-- **Siri.** "Hey Siri, turn on Jarvis Update" runs a briefing on demand. Other switches
+- **Siri.** "Hey Siri, turn on Hearth Update" runs a briefing on demand. Other switches
   run a security sweep, an energy report or quiet mode.
 - **Special briefings.** There's a 7:00 overnight security recap, a 21:00 energy summary,
   a 22:00 security sweep and a Sunday weekly recap.
@@ -108,6 +109,7 @@ Start from `config.example.yaml`. It's annotated throughout; the main sections a
 
 | Section | What it controls |
 |---|---|
+| `assistant_name` | what the assistant is called (default **Hearth**): its spoken persona, `{assistant_name}` in prompts, the HUD wordmark, the Siri switch default, the email subject |
 | `homepods`, `location`, `listener_name`, `name_probability` | where it plays, where you are, how often it uses your name |
 | `llm`, `tts`, `playback` | model, effort, web search; voice (`echo`, British butler instructions, speed 1.1); volume and prep time |
 | `prompt`, `segments`, `default_segment` | the briefing prompt and time-of-day extras (07:00 day ahead and overnight recap, midday markets, late-afternoon traffic, 21:00 energy and wind-down) |
@@ -127,7 +129,7 @@ Start from `config.example.yaml`. It's annotated throughout; the main sections a
 | other | `log_file`, `archive_dir` (briefing scripts), `context_file`, `memory_count`, `flourish_probability`, `failure_message` |
 | `alerts`, `alert_homepods` | real-time alert rules (section 6) |
 
-Prompt placeholders: `{date} {time} {weekday} {part_of_day} {location} {name_instruction}
+Prompt placeholders: `{assistant_name} {date} {time} {weekday} {part_of_day} {location} {name_instruction}
 {flourish_instruction} {segment_instructions} {recent_briefings} {personal_context}
 {home_status} {overnight_security} {energy_today} {traffic} {drones} {hazards}
 {airspace_notices} {weekly_summary}`.
@@ -259,18 +261,18 @@ an NVR) send only motion; list them in `motion_cameras` and use a `types: [motio
 
 ## 7. Siri and Apple Home
 
-### "Hey Siri, turn on Jarvis …" (the HomeKit accessory)
+### "Hey Siri, turn on Hearth …" (the HomeKit accessory)
 
 The daemon advertises a HomeKit accessory (HAP-python). Add it once: Home app → Add Accessory
-→ More options → **Jarvis Update** → enter `homekit.pincode`. Its switches each have their
+→ More options → **Hearth Update** → enter `homekit.pincode`. Its switches each have their
 own Siri name:
 
 | Say "Hey Siri, turn on…" | Does |
 |---|---|
-| Jarvis Update | the regular briefing, right now |
-| Jarvis Security | the security sweep: unlocked locks, open doors and gates, internet, cameras |
-| Jarvis Energy | Powerpack, solar, house load, battery runway, tomorrow's solar outlook |
-| Jarvis Quiet | no scheduled updates or non-urgent alerts until switched off or `quiet_until` |
+| Hearth Update | the regular briefing, right now |
+| Hearth Security | the security sweep: unlocked locks, open doors and gates, internet, cameras |
+| Hearth Energy | Powerpack, solar, house load, battery runway, tomorrow's solar outlook |
+| Hearth Quiet | no scheduled updates or non-urgent alerts until switched off or `quiet_until` |
 
 A briefing switch plays a short acknowledgement, runs its broadcast and turns itself off.
 Pairing state is kept in `~/Library/Application Support/jarvis/homekit.state`; deleting it

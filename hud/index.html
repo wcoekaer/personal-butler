@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="robots" content="noindex, nofollow">
 <meta name="referrer" content="no-referrer">
-<title>Jarvis Display</title>
+<title>Hearth Display</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
@@ -184,7 +184,7 @@ footer.foot::before { content: ""; position: absolute; left: 0; right: 0; top: 0
 
 <div id="app" class="hud">
   <header class="bar">
-    <div class="brand"><span class="dot" id="dot"></span>JARVIS<small id="where"></small></div>
+    <div class="brand"><span class="dot" id="dot"></span><span class="brand-name">HEARTH</span><small id="where"></small></div>
     <div class="chips" id="chips"></div>
   </header>
 
@@ -254,7 +254,7 @@ footer.foot::before { content: ""; position: absolute; left: 0; right: 0; top: 0
 </div>
 
 <div id="gate" class="gate" hidden>
-  <div class="brand"><span class="dot"></span>JARVIS</div>
+  <div class="brand"><span class="dot"></span><span class="brand-name">HEARTH</span></div>
   <div id="gate-msg">Connecting…</div>
 </div>
 
@@ -526,7 +526,7 @@ footer.foot::before { content: ""; position: absolute; left: 0; right: 0; top: 0
   }
 
   // ---------- render ----------
-  var last = null, booted = false;
+  var last = null, booted = false, shownName = null;
   function fresh() {
     if (!last) return;
     var age = Math.round((Date.now() - new Date(last.generated).getTime()) / 60000);
@@ -546,6 +546,11 @@ footer.foot::before { content: ""; position: absolute; left: 0; right: 0; top: 0
 
     // voice
     speaking = !!v.speaking || (!player.paused && !player.ended && player.currentTime > 0);
+    if (s.assistant && s.assistant !== shownName) {            // wordmark and title follow assistant_name
+      shownName = s.assistant;
+      document.querySelectorAll(".brand-name").forEach(function (e) { e.textContent = shownName.toUpperCase(); });
+      document.title = shownName + " Display";
+    }
     musicUpdate(s.music); musicSync();
     $("v-next").textContent = speaking ? "speaking" : (v.next ? "next " + v.next.at : "");
     var lb = v.last_briefing;

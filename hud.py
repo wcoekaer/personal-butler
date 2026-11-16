@@ -96,7 +96,7 @@ def first(r: Dict[str, list], label: str):
 def build_status(j, cfg: dict, now: Optional[dt.datetime] = None) -> dict:
     now = now or dt.datetime.now()
     r = _safe(lambda: readings(j, now), {})
-    s: dict = {"v": 1, "generated": now.isoformat(timespec="seconds"),
+    s: dict = {"v": 1, "assistant": cfg.get("assistant_name", "Hearth"), "generated": now.isoformat(timespec="seconds"),
                "location": cfg.get("location", "")}
 
     # --- voice -------------------------------------------------------------

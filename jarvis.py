@@ -58,7 +58,7 @@ DAY_NAMES = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
 log = logging.getLogger("jarvis")
 
 SPEECH_SYSTEM_PROMPT = """\
-You are Jarvis, the household's resident AI: a composed, impeccably polite \
+You are {assistant}, the household's resident AI: a composed, impeccably polite \
 British butler of an assistant. Your manner is calm, precise and quietly \
 confident, with a dry, understated wit used sparingly. You are never gushing, \
 never chatty, and never use exclamation marks. You may occasionally address the \
@@ -103,6 +103,9 @@ def load_config(path: Path) -> dict:
     cfg.setdefault("broadcasts", [])
     cfg.setdefault('memory', {})
     cfg.setdefault('energy_planning', {})
+    # the assistant's spoken name (persona, prompts' {assistant_name}, HUD wordmark, Siri switch default)
+    cfg['assistant_name'] = str(cfg.get('assistant_name') or 'Hearth').strip()
+    cfg['llm']['_assistant_name'] = cfg['assistant_name']
     validate_rules(cfg.get('conditions') or [])
     planning = cfg['energy_planning']
     for key, default, low, high in (('history_days', 21, 1, 90), ('min_days', 3, 1, 30),
@@ -1322,6 +1325,7 @@ def render_prompt(template: str, now: dt.datetime, cfg: dict, facts=None) -> str
         "weekday": now.strftime("%A"),
         "part_of_day": part_of_day(now),
         "location": cfg.get("location", ""),
+        "assistant_name": cfg.get("assistant_name", "Hearth"),
         "name_instruction": name_instruction(cfg),
         "flourish_instruction": flourish_instruction(cfg),
         "segment_instructions": segment_instructions(now, cfg),
@@ -1367,12 +1371,13 @@ BRIEFING_SCHEMA = {'type': 'object', 'additionalProperties': False,
 
 
 def speech_instructions(llm):
+    base = SPEECH_SYSTEM_PROMPT.replace('{assistant}', llm.get('_assistant_name') or 'Hearth')
     if llm.get('_structured'):
-        return SPEECH_SYSTEM_PROMPT + ('\nFor this request, wrap your answer in a JSON object with exactly '
+        return base + ('\nFor this request, wrap your answer in a JSON object with exactly '
                'speech (the spoken prose following all style rules above) and mentioned_fact_ids '
                '(an array of supplied fact IDs actually mentioned). The prose-only rule applies to speech, '
                'not the JSON envelope. Never put JSON, fact IDs or metadata inside speech.')
-    return SPEECH_SYSTEM_PROMPT
+    return base
 
 
 def ask_anthropic(prompt: str, llm: dict) -> str:
@@ -1775,7 +1780,8 @@ async def run_broadcast(b: dict, cfg: dict, when: dt.datetime, play_audio: bool 
         ecfg = cfg.get("email_reports") or {}
         if ecfg.get("enabled") and b["name"] in ecfg.get("broadcasts", [b["name"]]):
             try:
-                await asyncio.to_thread(email_report, ecfg, b["name"], when, text, audio, Path(tmp))
+                await asyncio.to_thread(email_report, dict(ecfg, _assistant=cfg.get("assistant_name")),
+                                        b["name"], when, text, audio, Path(tmp))
             except Exception as e:  # never let email trouble affect briefings
                 log.warning("[%s] email failed: %s", b["name"], e)
 
@@ -1799,10 +1805,12 @@ def email_report(ecfg: dict, name: str, when: dt.datetime, text: str, wav: Path,
                         "-ac", "1", str(attach)], check=True)
     stamp = when.strftime("%Y-%m-%d %H:%M")
     msg = EmailMessage()
-    msg["Subject"] = ecfg.get("subject", "Jarvis {name} briefing, {stamp}").format(name=name, stamp=stamp)
+    assistant = ecfg.get("_assistant") or "Hearth"
+    msg["Subject"] = ecfg.get("subject", "{assistant} {name} briefing, {stamp}").format(
+        name=name, stamp=stamp, assistant=assistant)
     msg["From"] = os.environ.get("SMTP_FROM") or os.environ.get("SMTP_USERNAME", "")
     msg["To"] = ", ".join(ecfg["to"])
-    msg.set_content("Jarvis %s briefing, %s\n\n%s\n" % (name, stamp, text))
+    msg.set_content("%s %s briefing, %s\n\n%s\n" % (assistant, name, stamp, text))
     subtype = "mp4" if fmt == "m4a" else "wav"
     msg.add_attachment(attach.read_bytes(), maintype="audio", subtype=subtype,
                        filename="jarvis-%s-%s.%s" % (name, when.strftime("%Y%m%d-%H%M"), attach.suffix[1:]))
@@ -2033,7 +2041,7 @@ def read_alerts(since: dt.datetime) -> List[dict]:
 
 
 class QuietMode:
-    """'Hey Siri, turn on Jarvis Quiet': skip scheduled updates and non-urgent
+    """'Hey Siri, turn on <assistant> Quiet': skip scheduled updates and non-urgent
     alerts until switched off or until the configured morning time."""
 
     def __init__(self, cfg: dict):
@@ -2609,8 +2617,8 @@ def weekly_summary(now: dt.datetime) -> str:
 
 async def start_homekit(cfg: dict) -> None:
     """Expose Jarvis to Apple Home as one accessory with several switches:
-    momentary briefing switches ("Hey Siri, turn on Jarvis Update") that run a
-    briefing immediately and switch themselves off, and a "Jarvis Quiet"
+    momentary briefing switches ("Hey Siri, turn on <assistant> Update") that run a
+    briefing immediately and switch themselves off, and a "<assistant> Quiet"
     switch that holds quiet mode."""
     from pyhap.accessory import Accessory
     from pyhap.accessory_driver import AccessoryDriver
@@ -2618,7 +2626,7 @@ async def start_homekit(cfg: dict) -> None:
 
     hcfg = cfg.get("homekit") or {}
     loop = asyncio.get_running_loop()
-    switches = hcfg.get("switches") or [{"name": hcfg.get("name", "Jarvis Update"),
+    switches = hcfg.get("switches") or [{"name": hcfg.get("name", cfg.get("assistant_name", "Hearth") + " Update"),
                                          "broadcast": hcfg.get("broadcast") or cfg["broadcasts"][0]["name"]}]
     state_dir = Path(os.path.expanduser("~/Library/Application Support/jarvis"))
     state_dir.mkdir(parents=True, exist_ok=True)
@@ -3026,7 +3034,7 @@ def main() -> int:
     elif args.cmd == "cameras":
         return cameras_cmd(cfg, args.watch)
     elif args.cmd == "pair":
-        return asyncio.run(pair_device(args.device, args.pin_file))
+        return asyncio.run(pair_device(args.device, args.pin_file, cfg.get("assistant_name", "Hearth")))
     elif args.cmd == "say":
         homepods = args.homepod or cfg.get("homepods") or []
         with tempfile.TemporaryDirectory(prefix="jarvis-") as tmp:
@@ -3038,7 +3046,7 @@ def main() -> int:
 
 def operations_cmd(args, cfg):
     if args.cmd == 'dashboard':
-        server = operations.dashboard_server(JOURNAL, args.port)
+        server = operations.dashboard_server(JOURNAL, args.port, cfg.get("assistant_name", "Hearth"))
         print('Jarvis dashboard: http://127.0.0.1:%d' % server.server_port, flush=True)
         try:
             server.serve_forever()
@@ -3132,7 +3140,7 @@ def cameras_cmd(cfg: dict, watch: bool) -> int:
         return 0
 
 
-async def pair_device(name: str, pin_file: Optional[str]) -> int:
+async def pair_device(name: str, pin_file: Optional[str], client_name: str = "Hearth") -> int:
     """AirPlay pairing: the device shows a 4-digit PIN; enter it (or write it to
     --pin-file). Credentials are saved for playback; pairing is needed once."""
     import pyatv
@@ -3151,8 +3159,8 @@ async def pair_device(name: str, pin_file: Optional[str]) -> int:
     from pyatv.protocols.airplay.auth import hap as airplay_hap
 
     saved_headers = dict(airplay_hap._AIRPLAY_HEADERS)
-    airplay_hap._AIRPLAY_HEADERS["X-Apple-Client-Name"] = "Jarvis"
-    pairing = await pyatv.pair(conf, Protocol.AirPlay, loop, name="Jarvis")
+    airplay_hap._AIRPLAY_HEADERS["X-Apple-Client-Name"] = client_name
+    pairing = await pyatv.pair(conf, Protocol.AirPlay, loop, name=client_name)
     try:
         await pairing.begin()
         print("A PIN is now shown on %s." % name, flush=True)

@@ -72,9 +72,10 @@ def doctor(cfg, store):
     return checks
 
 
-def dashboard_server(store, port=8765):
+def dashboard_server(store, port=8765, name='Hearth'):
     token = secrets.token_urlsafe(32)
-    html = Path(__file__).with_name('dashboard.html').read_text().replace('__TOKEN__', token)
+    html = (Path(__file__).with_name('dashboard.html').read_text().replace('__TOKEN__', token)
+            .replace('__NAME_UPPER__', name.upper()).replace('__NAME__', name))
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *args):

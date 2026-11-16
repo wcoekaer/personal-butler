@@ -95,6 +95,7 @@ class ScannerFeed:
         self.lock = threading.Lock()
         self.client = None
         self.connected = False
+        self.started = time.time()
         self.last_msg: Dict[str, float] = {}               # topic key -> epoch of last message
         self.rf: dict = {}
         self.wifi: dict = {}
@@ -261,7 +262,10 @@ class ScannerFeed:
             hour = [x for x in self.detections if now - x["at"] <= 3600]
             last = self.detections[-1] if self.detections else None
             rf = dict(self.rf)
-        out = {"online": bool(self.connected and rf_age < 300), "tracks": rf.get("tracks"),
+        # just started and nothing heard yet: "connecting", not "offline"
+        starting = "rf" not in self.last_msg and now - self.started < 300
+        out = {"online": bool(self.connected and rf_age < 300) or starting, "starting": starting,
+               "tracks": rf.get("tracks"),
                "rid_hour": len({x["id"] for x in hour if x["kind"] == "rid"}),
                "signatures_hour": len({x["id"] for x in hour if x["kind"] != "rid"})}
         if last and now - last["at"] <= 6 * 3600:

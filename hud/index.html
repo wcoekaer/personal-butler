@@ -556,7 +556,7 @@ footer.foot::before { content: ""; position: absolute; left: 0; right: 0; top: 0
     var rf = s.rf || {}, rfl = $("rfline");
     rfl.hidden = rf.online == null;
     if (rf.online != null) {
-      var rtxt = rf.online ? "RF scan · " + (rf.tracks != null ? rf.tracks + " emitters" : "listening")
+      var rtxt = rf.starting ? "RF scan · connecting" : rf.online ? "RF scan · " + (rf.tracks != null ? rf.tracks + " emitters" : "listening")
                  + " · Remote ID " + (rf.rid_hour || 0) + "/h" : "RF scanner offline", rcls = rf.online ? "" : "warn";
       if (rf.last && rf.last.recent) {
         rtxt = "RF · " + rf.last.what + (rf.last.miles != null ? " · " + rf.last.miles + " mi" + (rf.last.dir ? " " + rf.last.dir : "") : "") + " · " + rf.last.at;

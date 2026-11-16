@@ -37,6 +37,9 @@ from typing import Dict, List, Optional, Tuple
 import yaml
 
 import feeds as feedmod
+import scanner as scannermod
+import vehicles as vehmod
+import watchdog as watchmod
 from journal import open_journal, timestamp, fingerprint
 from conditions import ConditionEngine, validate_rules
 from planning import EnergyPlanner
@@ -1274,6 +1277,10 @@ def render_prompt(template: str, now: dt.datetime, cfg: dict, facts=None) -> str
     recent = recent_briefings(now, cfg)
     personal = personal_context(now, cfg)
     home = MQTT.summary(now) if MQTT else ""
+    if WATCHDOG and WATCHDOG.down_lines():
+        home = (home + "\n" if home else "") + "\n".join(WATCHDOG.down_lines())
+    if VEHICLES and VEHICLES.lines():
+        home = (home + "\n" if home else "") + "\n".join(VEHICLES.lines())
     overnight, energy = "", ""
     if MQTT and MQTT.unifi:
         ov = cfg.get("overnight") or {}
@@ -2144,7 +2151,9 @@ class AirspaceMonitor:
             prev_dt = dt.datetime.fromisoformat(prev) if prev else None
             fresh = now - seen < dt.timedelta(minutes=10)
             new_flight = prev_dt is None or seen - prev_dt > self.gap
-            if fresh and new_flight:
+            # shared with the RF scanner box: one flight is announced once, by whichever hears it first
+            unclaimed = fresh and DRONE_REGISTRY.observe(serial, seen.timestamp(), self.gap.total_seconds())
+            if fresh and new_flight and unclaimed:
                 miles, bearing = None, None
                 if slat is not None and d.get("last_lat") is not None:
                     miles = distance_miles(slat, slng, d["last_lat"], d["last_lng"])
@@ -2202,6 +2211,10 @@ class AirspaceMonitor:
 
 
 AIRSPACE: Optional[AirspaceMonitor] = None
+DRONE_REGISTRY = scannermod.DroneRegistry()
+SCANNER: Optional["scannermod.ScannerFeed"] = None
+WATCHDOG: Optional["watchmod.SourceWatchdog"] = None
+VEHICLES: Optional["vehmod.VehicleMonitor"] = None
 
 
 # --------------------------------------------------------------------------- traffic (511.org open data)
@@ -2720,6 +2733,24 @@ async def scheduler(cfg: dict) -> None:
         tr_task = asyncio.create_task(TRAFFIC.run())
         tr_task.add_done_callback(lambda t: t.cancelled() or t.exception() and
                                   log.error("traffic monitor stopped: %r", t.exception()))
+    global SCANNER, WATCHDOG
+    if (cfg.get("scanner") or {}).get("enabled") and os.environ.get("SCANNER_MQTT_HOST"):
+        home = (cfg.get("feeds") or {}).get("home") or {}
+        SCANNER = scannermod.ScannerFeed(cfg, (float(home["lat"]), float(home["lng"])) if home else None,
+                                         DRONE_REGISTRY, monitor=AIRSPACE)
+        SCANNER.listeners.append(alerter.submit)
+        SCANNER.start()
+    if (cfg.get("watchdog") or {}).get("enabled"):
+        WATCHDOG = watchmod.SourceWatchdog(cfg, JOURNAL, mqtt=MQTT, scanner=SCANNER, topic_matches=topic_matches)
+        WATCHDOG.listeners.append(alerter.submit)
+        wd_task = asyncio.create_task(WATCHDOG.run())
+        wd_task.add_done_callback(lambda t: t.cancelled() or t.exception() and
+                                  log.error("watchdog stopped: %r", t.exception()))
+        log.info("watchdog: %d sources", len(WATCHDOG.sources))
+    global VEHICLES
+    if MQTT and (cfg.get("vehicles") or {}).get("enabled", True):
+        VEHICLES = vehmod.VehicleMonitor(cfg, JOURNAL)
+        log.info("vehicle checks: %s", ", ".join(VEHICLES.names.values()) or "none")
     if (cfg.get("hud") or {}).get("enabled"):
         import hud
         hud_task = asyncio.create_task(hud.serve(sys.modules[__name__], cfg))
@@ -2799,7 +2830,7 @@ async def process_command(command, alerter):
 
 
 async def maintenance(cfg, alerter):
-    last_prune = last_forecast = 0
+    last_prune = last_forecast = last_vehicles = 0
     controls = set()
     while True:
         now = dt.datetime.now()
@@ -2815,6 +2846,15 @@ async def maintenance(cfg, alerter):
                 stale = sum(not f['fresh'] for f in facts)
                 JOURNAL.health('home data', 'warning' if stale or not facts else 'ok',
                                '%d observations; %d stale/unreachable' % (len(facts), stale), 45)
+            if SCANNER:
+                JOURNAL.health('scanner broker', 'ok' if SCANNER.connected else 'error',
+                               'connected' if SCANNER.connected else 'disconnected', 45)
+            if VEHICLES and MQTT and now.timestamp() - last_vehicles >= 60:
+                last_vehicles = now.timestamp()
+                with MQTT.lock:
+                    values = dict(MQTT.values)
+                for ev in VEHICLES.check(values):
+                    alerter.submit(ev)
             context_path = Path(cfg.get('context_file', '~/Library/Caches/jarvis/context.json')).expanduser()
             if context_path.exists():
                 try:

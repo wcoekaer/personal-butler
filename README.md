@@ -88,6 +88,7 @@ a file. `.env.example` lists them all.
 | `ANTHROPIC_API_KEY` | only if `llm.provider: anthropic` |
 | `MQTT_HOST`, `MQTT_USERNAME`, `MQTT_PASSWORD` (`MQTT_PORT`) | your broker |
 | `AIRSPACE_URL`, `AIRSPACE_API_KEY` | OSP airspace server (drones, TFRs, aircraft) |
+| `SCANNER_MQTT_HOST`, `SCANNER_MQTT_USERNAME`, `SCANNER_MQTT_PASSWORD` (`SCANNER_MQTT_PORT`) | the RF scanner box's broker (`scanner`) |
 | `TRAFFIC_API_KEY` | 511.org open-data token |
 | `IQAIR_API_KEY` | IQAir AirVisual (free Community plan) |
 | `JARVIS_TEAM_ID`, `JARVIS_BUNDLE_PREFIX` | code signing for the JarvisHome bridge |
@@ -107,6 +108,9 @@ Start from `config.example.yaml`. It's annotated throughout; the main sections a
 | `mqtt.say_topic`, `mqtt.brief_topic` | let other systems make Jarvis speak or run a briefing (section 9) |
 | `mqtt.discover` | subscribe to everything and keep a topic catalog (how new feeds get noticed) |
 | `airspace`, `traffic`, `feeds` | drones, 511 traffic, weather/quake/fire/air/TFR/aircraft feeds |
+| `scanner` | RF scanner box: Remote ID and RF drone detections (range, own-drone and vendor filters) |
+| `watchdog` | data sources that should keep reporting, and how long "quiet" is for each |
+| `vehicles` | Tesla checks: software update ready, tire pressure below recommended |
 | `homekit` | the Siri accessory: switches, setup code, acknowledgements, quiet mode |
 | `alerts`, `alert_homepods` | real-time alert rules (section 6) |
 
@@ -124,6 +128,7 @@ Prompt placeholders: `{date} {time} {weekday} {part_of_day} {location} {name_ins
 | **Apple Home** | JarvisHome bridge (section 7) | locks, doors, contact sensors, leak/smoke/CO, low batteries, indoor air quality (AQI, PM2.5/PM10, VOC, CO₂) |
 | **Calendar, Reminders, Mail** | JarvisContext helper (section 8) | snapshot every 5 min while you're logged in |
 | **OSP airspace server** | `airspace`, `feeds.flight_restrictions`, `feeds.low_aircraft` | Drones seen by *one* Remote ID sensor (`/api/drones`, filtered by `last_sensor`), with your own drone excluded by serial; NOTAM/TFR polygons near home; live ADS-B/UAT targets |
+| **RF scanner box** | `scanner` | An Oracle-RF-Server scanner's own broker: `rid/drones` (Bluetooth/Wi-Fi Remote ID), `/scanner/wifi` (incl. OpenDroneID beacons), `/scanner/rf` (HackRF sweep), `drone_scan` (900 MHz). Remote ID within `max_miles` is announced and added to the radar/briefings; RF-only and Wi-Fi-signature verdicts are HUD-only. One flight is announced once across this and the airspace sensor. Your own drone (`airspace.ignore_serials`) is never shown; while it flies, RF/Wi-Fi verdicts are attributed to it. |
 | **511.org traffic** | `traffic` | Accidents and full road closures in one county (incidents API + WZDx work zones). **Limit 60 requests/hour per token**: Jarvis polls about 15/h, caps at 40/h (persisted), honours `RateLimit-Remaining`/429. Per the 511 Data Disseminator Agreement §5.b, spoken output says *"Data provided by 511.org"*; no 511 marks in naming. Responses echo the token, so URLs and bodies are never logged. |
 | **National Weather Service** | `feeds.weather_alerts` | `api.weather.gov/alerts/active?point=lat,lon`, public. Moderate+ alerts are announced; minor ones appear in briefings. |
 | **USGS earthquakes** | `feeds.earthquakes` | real-time GeoJSON; `tiers` = (min magnitude, max miles) |
@@ -147,6 +152,24 @@ A gateway WAN port counts as offline only when its link drops (cable or modem). 
 out through whichever WAN is working, so it shows whether the house has internet, not which
 WAN link is up.
 
+### Watchdog
+
+`watchdog.sources` lists what should keep reporting. Each source is one of `mqtt: <topic
+pattern>` (home broker), `scanner: rf|rid|wifi|rc900|any`, `airspace_sensor: <sensor id>`
+(its `last_observation_at`), or `health: <name>` (a Jarvis health record, see `jarvis status`),
+with `quiet_minutes`. Jarvis says when a source goes quiet and when it is back, once per
+outage; sources that go quiet together are named in one sentence. A source whose connection
+is itself down (broker disconnected, airspace API failing) isn't judged, so a broken link is
+one alert. Quiet sources also show on the HUD and are listed in the next briefing.
+
+### Vehicles
+
+From the Tesla `vehicle_data` payloads already in `mqtt.topics`: a software update that is
+ready (`available`/`scheduled`) is announced once per version; a tire `tire_low_percent`
+below the car's recommended cold pressure (or with a TPMS warning) is announced once and
+re-armed when the tires are back within half that. Both are listed in briefings and flagged
+on the HUD while they last.
+
 ## 6. Real-time alerts
 
 Each rule in `alerts` matches an event `kind`, picks one of its `messages` at random and
@@ -167,6 +190,10 @@ cut into a briefing: playback is serialized. Every spoken alert is logged to
 | `battery_low` | Powerpack (50/30 %) | `{level} {threshold}` |
 | `homekit` | HomeKit bridge | `{accessory} {room} {characteristic} {text}` |
 | `drone`, `drone_sensor_offline/online` | airspace server | `{model} {distance} {near} {sensor}` |
+| `scanner_drone` | RF scanner box (Remote ID) | `{drone} {model} {where} {distance} {via}` |
+| `scanner_rf_drone` | RF scanner box (RF/Wi-Fi verdict; no rule by default) | `{detail}` |
+| `source_quiet`, `source_back` | watchdog | `{detail} {sources} {minutes}` |
+| `vehicle_update`, `vehicle_tires_low` | Tesla vehicle data | `{vehicle} {version} {status_text} {duration} {detail}` |
 | `traffic_accident`, `road_closure` | 511.org | `{text} {distance} {severity}` |
 | `weather_alert` | NWS | `{event} {severity} {until}` |
 | `earthquake` | USGS | `{magnitude} {distance} {direction} {place}` |

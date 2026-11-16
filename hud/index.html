@@ -191,7 +191,7 @@ footer.foot::before { content: ""; position: absolute; left: 0; right: 0; top: 0
   <div class="col">
     <section class="panel" id="p-weather"><h2>Atmosphere <span id="w-src"></span></h2><div id="weather"></div></section>
     <section class="panel" id="p-network"><h2>Network</h2><div id="network"></div></section>
-    <section class="panel" id="p-airspace"><h2>Airspace <span>3 mi</span></h2><canvas id="radar" aria-label="Airspace radar"></canvas><div id="airspace"></div></section>
+    <section class="panel" id="p-airspace"><h2>Airspace <span>3 mi</span></h2><canvas id="radar" aria-label="Airspace radar"></canvas><div id="airspace"></div><div class="porta" id="rfline" hidden></div></section>
   </div>
 
   <div class="centre">
@@ -552,6 +552,20 @@ footer.foot::before { content: ""; position: absolute; left: 0; right: 0; top: 0
     al += items(a.aircraft, function (x) { return '<li><span class="t">' + esc(x.at) + '</span><span class="crit-text">' + esc(x.what) + " · " + esc(x.agl) + " ft</span></li>"; });
     if (!(a.drones || []).length && !(a.aircraft || []).length) al += none("Skies clear. No drones in 24 h, no low aircraft now.");
     else ticker.push((a.drones || []).length + " drone sighting(s) in 24 h");
+    // RF scanner box: one small line, highlighted only when it picked up something drone-like
+    var rf = s.rf || {}, rfl = $("rfline");
+    rfl.hidden = rf.online == null;
+    if (rf.online != null) {
+      var rtxt = rf.online ? "RF scan · " + (rf.tracks != null ? rf.tracks + " emitters" : "listening")
+                 + " · Remote ID " + (rf.rid_hour || 0) + "/h" : "RF scanner offline", rcls = rf.online ? "" : "warn";
+      if (rf.last && rf.last.recent) {
+        rtxt = "RF · " + rf.last.what + (rf.last.miles != null ? " · " + rf.last.miles + " mi" + (rf.last.dir ? " " + rf.last.dir : "") : "") + " · " + rf.last.at;
+        rcls = "warn"; alvl = alvl || "warn"; ticker.push(rtxt);
+        chips.push([rf.last.kind === "rid" ? "Drone · Remote ID" : "Drone RF?", "warn"]);
+      }
+      rfl.textContent = rtxt;
+      rfl.className = "porta" + (rcls ? " " + rcls + "-text" : "");
+    }
     $("airspace").innerHTML = al; level($("p-airspace"), alvl);
 
     // perimeter
@@ -588,7 +602,9 @@ footer.foot::before { content: ""; position: absolute; left: 0; right: 0; top: 0
     var st = s.stock || {};
     if (st.price != null) ol += row(st.symbol || "Stock", "$" + Number(st.price).toFixed(2) + (st.closed ? " · close" : ""));
     (s.vehicles || (s.vehicle ? [s.vehicle] : [])).forEach(function (car) {
-      if (car.battery != null) ol += row(car.name || "Car", Math.round(car.battery) + "%" + (car.range != null ? " · " + Math.round(car.range) + " mi" : "") + (car.charging ? " · " + car.charging : ""), car.battery <= 20 ? "warn-text" : "");
+      if (car.tires_low) ticker.push((car.name || "Car") + " tire pressure low");
+      if (car.battery != null) ol += row(car.name || "Car", Math.round(car.battery) + "%" + (car.range != null ? " · " + Math.round(car.range) + " mi" : "") + (car.charging ? " · " + car.charging : "")
+        + (car.update ? " · update " + car.update : "") + (car.tires_low ? " · tires low" : ""), car.battery <= 20 || car.tires_low ? "warn-text" : "");
       else if (car.status) ol += row(car.name || "Car", "asleep");
     });
     $("outside").innerHTML = ol || none("All quiet outside."); level($("p-outside"), olvl);

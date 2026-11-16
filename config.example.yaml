@@ -230,6 +230,37 @@ airspace:
   ignore_serials:
     - XXXXXXXXXXXXXXXX           # <-- your own drone's serial: never announced
 
+# RF scanner box (scanner.py): Remote ID and RF drone detections straight from an
+# Oracle-RF-Server scanner's broker (SCANNER_MQTT_* in .env). Remote ID within
+# max_miles is announced (and shown on the radar / in briefings); RF-only and Wi-Fi
+# signature verdicts show on the HUD and are journaled, not spoken.
+scanner:
+  enabled: false
+  max_miles: 2.0
+  own_drone_hold_minutes: 10   # after your own drone's Remote ID, RF/Wi-Fi verdicts are attributed to it
+  ignore_ouis: []              # Wi-Fi vendor prefixes never shown, e.g. ["38:1D:14"] for your own Skydio
+
+# Watchdog (watchdog.py): say so when a data source goes quiet, and when it is back.
+# A source is one of: mqtt: <topic pattern>, scanner: rf|rid|wifi|rc900|any,
+# airspace_sensor: <sensor id>, health: <journal health name (see `jarvis status`)>.
+watchdog:
+  enabled: true
+  check_seconds: 60
+  startup_grace_minutes: 10
+  sources:
+    - {name: Home MQTT broker, spoken: the connection to the home MQTT broker, health: mqtt, quiet_minutes: 5}
+    - {name: Weather station, spoken: the weather station, mqtt: http_weatherflow, quiet_minutes: 30}
+    - {name: Powerpack, spoken: the Powerpack, mqtt: /tesla/powerpack/state, quiet_minutes: 15}
+    - {name: Airspace server, spoken: the airspace server, health: airspace, quiet_minutes: 15}
+    # - {name: ADS-B receiver, spoken: the ADS-B receiver, airspace_sensor: <sensor id>, quiet_minutes: 30}
+    # - {name: RF scanner, spoken: the RF scanner box, scanner: rf, quiet_minutes: 10}
+
+# Tesla vehicle checks (vehicles.py) on the teslaapi/vehicle_data_* payloads in mqtt.topics.
+vehicles:
+  enabled: true
+  tire_low_percent: 10         # a tire this far below the car's recommended cold pressure (or a TPMS warning)
+  tire_max_age_days: 14        # pressure readings older than this are ignored
+
 # External feeds (feeds.py). Each polls on its own schedule and only announces
 # new items; the first poll after install just records what's already there.
 feeds:
@@ -458,6 +489,40 @@ alerts:
     cooldown_minutes: 30
     messages:
       - "The {sensor} drone sensor is back online."
+  # RF scanner box (see scanner): decoded Remote ID near the house
+  - name: scanner-drone
+    kind: scanner_drone
+    cooldown_minutes: 15
+    messages:
+      - "Pardon the interruption, sir: the RF scanner has picked up {drone} broadcasting Remote ID, {where}."
+      - "A note from the RF scanner, sir: {drone} is broadcasting Remote ID, {where}."
+  # Watchdog (see watchdog): data sources going quiet / coming back; daytime only,
+  # overnight outages are listed in the next briefing instead
+  - name: source-quiet
+    kind: source_quiet
+    cooldown_minutes: 60
+    hours: {from: "07:00", to: "22:00"}
+    messages:
+      - "A small housekeeping note, sir: {detail}"
+  - name: source-back
+    kind: source_back
+    cooldown_minutes: 0
+    hours: {from: "07:00", to: "22:00"}
+    messages:
+      - "{detail}"
+  # Tesla vehicles (see vehicles): announced once each, daytime; also listed in briefings
+  - name: vehicle-update
+    kind: vehicle_update
+    cooldown_minutes: 0
+    hours: {from: "08:00", to: "21:00"}
+    messages:
+      - "For your information, sir: {vehicle} has software update {version}, which {status_text}; it takes {duration}."
+  - name: vehicle-tires-low
+    kind: vehicle_tires_low
+    cooldown_minutes: 0
+    hours: {from: "08:00", to: "21:00"}
+    messages:
+      - "A word of caution, sir: {vehicle}'s tire pressure is low; {detail}."
   # EcoFlow power station (see feeds.ecoflow)
   - name: ecoflow-ac-lost
     kind: ecoflow_ac_lost

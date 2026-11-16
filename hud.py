@@ -394,6 +394,12 @@ def build_status(j, cfg: dict, now: Optional[dt.datetime] = None) -> dict:
                 "stale": age > max(f.interval * 5, 600)}
     s["portable"] = _safe(portable, {})
 
+    # --- RF scanner box (scanner.py): emitter count, Remote ID, last drone-like detection ---
+    def rf():
+        sc = getattr(j, "SCANNER", None)
+        return sc.hud_state() if sc else {}
+    s["rf"] = _safe(rf, {})
+
     # --- vehicle -----------------------------------------------------------------------
     def vehicles():
         # one entry per car configured as "<Name> battery" on a teslaapi/vehicle_data_* topic
@@ -405,6 +411,9 @@ def build_status(j, cfg: dict, now: Optional[dt.datetime] = None) -> dict:
                 car = {"name": name, "battery": _num(first(r, name + " battery")),
                        "range": _num(first(r, name + " range")), "charging": first(r, name + " charging state"),
                        "locked": first(r, name + " locked"), "status": first(r, name + " status")}
+                veh = getattr(j, "VEHICLES", None)
+                if veh:
+                    car.update(veh.flags(spec["topic"]))   # update (version), tires_low
                 cars.append({k: v for k, v in car.items() if v is not None})
         return cars
     s["vehicles"] = _safe(vehicles, [])

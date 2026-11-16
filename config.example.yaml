@@ -1047,10 +1047,13 @@ broadcasts:
       - the internet DOWN, or a gateway WAN port OFFLINE right now
       - any ALARM or HomeKit SAFETY line (smoke, CO, leak, tampering)
       - a person detected by a camera in the last 30 minutes
-      - a low battery on a lock
-      - a data source listed as not reporting
+      - a smoke, CO or leak sensor that is not reporting
+      - a line saying "Data sources not reporting"
       Do not mention anything that is normal or fine, and do not recap the day,
-      the weather, energy or the battery. If something needs attention, say it
+      the weather, energy or the battery. Never mention low device batteries,
+      indoor air quality, humidity or temperature readings, or other sensors
+      that are unavailable (they are reported elsewhere). If something needs
+      attention, say it
       in one or two short sentences, then a brief good-night. If nothing needs
       attention, reply with exactly: ALL CLEAR
       Never mention grid or off-grid status. No preamble.

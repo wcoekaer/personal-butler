@@ -102,6 +102,7 @@ a file. `.env.example` lists them all.
 | `ECOFLOW_ACCESS_KEY`, `ECOFLOW_SECRET_KEY` | EcoFlow Developer API (`feeds.ecoflow`) |
 | `FIRMS_MAP_KEY` | NASA FIRMS satellite fire detections (`feeds.satellite_fires`; free key by email) |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM` | emailing the briefing audio (`email_reports`; e.g. an iCloud app-specific password) |
+| `CLICKSEND_USERNAME`, `CLICKSEND_API_KEY` | texting alerts by SMS (`sms`; ClickSend Dashboard > Developers > API credentials) |
 | `JARVIS_TEAM_ID`, `JARVIS_BUNDLE_PREFIX` | code signing for the JarvisHome bridge |
 
 ## 4. Configuration (`config.yaml`)
@@ -125,6 +126,7 @@ Start from `config.example.yaml`. It's annotated throughout; the main sections a
 | `vehicles` | Tesla checks: software update ready, tire pressure below recommended |
 | `homekit` | the Siri accessory: switches, setup code, acknowledgements, quiet mode |
 | `email_reports` | email a briefing's audio (`to`, `broadcasts`, `format`) after it plays |
+| `sms` | text alerts by SMS through ClickSend (`to`, filters, cost guards; section 6) |
 | `overnight` | the window (`from`/`to`) the 07:00 overnight recap covers |
 | `hud` | wall display: port, refresh, remote publishing, `music` |
 | other | `log_file`, `archive_dir` (briefing scripts), `context_file`, `memory_count`, `flourish_probability`, `failure_message` |
@@ -250,6 +252,31 @@ cut into a briefing: playback is serialized. Every spoken alert is logged to
 
 Each feed's first poll after install records what already exists without announcing it, so a
 fresh install doesn't produce a burst of stale alerts.
+
+### Alerts by SMS (ClickSend)
+
+With `sms.enabled`, every alert Jarvis speaks is also sent as a text to the numbers in
+`sms.to`, through [ClickSend](https://www.clicksend.com)'s REST API. That covers alert rules
+and persistent conditions (and their "resolved" follow-ups). Scheduled briefings are never
+texted. Messages that other systems post on `mqtt.say_topic` are texted only with
+`say: true`. Put the account username and API key in `.env` (`CLICKSEND_USERNAME`,
+`CLICKSEND_API_KEY`), then send a test:
+
+    ./jarvis sms "Test from Jarvis"
+
+- **Same rules as speech:** an alert is texted when it would be spoken. Rule cooldowns apply,
+  and quiet mode holds back non-urgent texts too (set `during_quiet: true` to text them
+  anyway).
+- **Choosing alerts:** `exclude` and `only` take rule or condition names, and `sms: false`
+  on a rule keeps it off SMS.
+- **Text format:** each text starts with `prefix` (default `{assistant}: `). Typographic
+  quotes and dashes become plain ASCII so a message stays in the 160-character GSM alphabet;
+  longer texts are cut at `max_chars` (306, two message parts).
+- **Cost guards:** the same text isn't sent twice within `dedupe_minutes`, and at most
+  `max_per_hour` texts go out per hour; further alerts are logged and still spoken.
+- **Never in the way:** texts are sent in the background, so a slow or failing ClickSend
+  call never delays or stops the spoken alert. Failures are logged with ClickSend's reason;
+  phone numbers in the log show only their last four digits.
 
 ### Camera names
 

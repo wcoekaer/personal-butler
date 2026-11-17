@@ -376,6 +376,23 @@ email_reports:
   broadcasts: [hourly]        # which broadcasts to send
   format: m4a                 # m4a (~0.5 MB, AAC 64k mono) or wav (~6 MB)
 
+# Alerts by SMS through ClickSend (sms.py). Every alert Jarvis speaks -- alert rules and
+# persistent conditions -- is also texted; scheduled briefings never are. Credentials in .env:
+# CLICKSEND_USERNAME and CLICKSEND_API_KEY. Test with: ./jarvis sms "Test from Jarvis"
+sms:
+  enabled: false
+  to: ["+15555550123"]          # international format; one or more numbers
+  # from: "+15555550100"        # optional: a ClickSend dedicated number (else ClickSend's shared pool)
+  prefix: "{assistant}: "       # added in front of every text
+  conditions: true              # persistent conditions and their "resolved" follow-ups
+  say: false                    # messages other systems post on mqtt.say_topic
+  during_quiet: false           # true: also text the alerts quiet mode keeps silent
+  exclude: []                   # alert rule / condition names never to text (or `sms: false` on a rule)
+  only: []                      # if set, text only these rule / condition names
+  max_chars: 306                # longer texts are cut (306 = two message parts)
+  dedupe_minutes: 10            # drop a repeat of the exact same text within this time
+  max_per_hour: 20              # cost guard: at most this many texts per hour
+
 # Wall display (hud.py, hud/index.html). Local: http://<this-mac>:8790/?token=<HUD_TOKEN>
 # (live, WebSocket). Remote: the page plus an AES-encrypted snapshot pushed over
 # SSH every minute; open it with the private link …/#k=<HUD_REMOTE_KEY>.

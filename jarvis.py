@@ -46,6 +46,7 @@ from journal import open_journal, timestamp, fingerprint
 from conditions import ConditionEngine, validate_rules
 from planning import EnergyPlanner
 import operations
+import sms as smsmod
 
 JOURNAL = None
 CONDITIONS = None
@@ -1852,6 +1853,8 @@ class Alerter:
         self.last_fired: Dict[str, dt.datetime] = {}
         self.audio_dir = Path(os.path.expanduser("~/Library/Caches/jarvis/alerts"))
         self.ready = False
+        # alerts (never briefings) also go out by SMS when `sms:` is enabled
+        self.sms = smsmod.SmsRelay(cfg.get("sms"), cfg.get("assistant_name", "Hearth"))
 
     @staticmethod
     def event_facts(ev):
@@ -1963,7 +1966,9 @@ class Alerter:
                     log.info("say suppressed (quiet mode): %r", ev["text"])
                     if aid:
                         JOURNAL.progress(aid, 'suppressed', 'quiet mode')
+                    self.sms.forward(ev['kind'], ev.get('rule', ev['kind']), ev['text'], quiet=True)
                     continue
+                self.sms.forward(ev['kind'], ev.get('rule', ev['kind']), ev['text'])
                 homepods = ev.get("homepods") or self.cfg.get("alert_homepods") or self.cfg.get("homepods")
                 log.info("say: %r -> %s", ev["text"], ", ".join(homepods))
                 asyncio.create_task(self._speak(ev["text"], homepods,
@@ -1987,13 +1992,19 @@ class Alerter:
                 if last and now - last < cooldown:
                     log.info("alert %s suppressed (cooldown)", name)
                     break
+                text = self.render(random.choice(rule["messages"]), ev)
+                texted = rule.get("sms", True) is not False
                 if QUIET and QUIET.active(now) and not rule.get("urgent"):
                     log.info("alert %s suppressed (quiet mode)", name)
+                    if texted:   # only with sms.during_quiet; the relay keeps its own cooldown here
+                        self.sms.forward("alert", name, text, quiet=True, key=cooldown_key,
+                                         cooldown=cooldown.total_seconds())
                     break
                 self.last_fired[cooldown_key] = now
                 if JOURNAL:
                     JOURNAL.put('cooldown:' + cooldown_key, now.timestamp())
-                text = self.render(random.choice(rule["messages"]), ev)
+                if texted:
+                    self.sms.forward("alert", name, text, key=cooldown_key, cooldown=cooldown.total_seconds())
                 homepods = rule.get("homepods") or self.cfg.get("alert_homepods") or self.cfg.get("homepods")
                 volume = rule.get("volume", self.cfg["playback"].get("volume"))
                 log.info("alert %s: %r -> %s", name, text, ", ".join(homepods))
@@ -2998,6 +3009,9 @@ def main() -> int:
     s = sub.add_parser("say", help="speak text on HomePods")
     s.add_argument("text")
     s.add_argument("--homepod", action="append")
+    sm = sub.add_parser("sms", help="send a test text through ClickSend (sms: in config.yaml)")
+    sm.add_argument("text")
+    sm.add_argument("--to", action="append", help="phone number in international format (default: sms.to)")
     args = ap.parse_args()
 
     config_path = Path(args.config)
@@ -3042,6 +3056,8 @@ def main() -> int:
         return cameras_cmd(cfg, args.watch)
     elif args.cmd == "pair":
         return asyncio.run(pair_device(args.device, args.pin_file, cfg.get("assistant_name", "Hearth")))
+    elif args.cmd == "sms":
+        return asyncio.run(smsmod.send_test(cfg.get("sms"), cfg.get("assistant_name", "Hearth"), args.text, args.to))
     elif args.cmd == "say":
         homepods = args.homepod or cfg.get("homepods") or []
         with tempfile.TemporaryDirectory(prefix="jarvis-") as tmp:

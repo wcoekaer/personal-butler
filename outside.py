@@ -470,15 +470,43 @@ class MailWatch(OptIn):
             s = ". ".join(x[:1].upper() + x[1:] for x in s.lower().split(". "))
         return s
 
+    MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September",
+              "October", "November", "December"]
+    DATE = re.compile(r"(?i)\b(until|through|thru|till|on|by|from|before|after|starting|beginning|ending|expires?)"
+                      r"\s+(\d{1,2})/(\d{1,2})(?:/(\d{4}|\d{2}))?(?![/\d])(?!\s*(?:inch|in\b|mile|of an?\b))")
+
+    @classmethod
+    def spoken_dates(cls, text: str) -> str:
+        """'until 11/20' -> 'until November 20' (a British voice would otherwise guess at it);
+        only after a date word, so '1/2 inch' stays as it is."""
+        def say(m):
+            year = int(m.group(4)) if m.group(4) else dt.date.today().year
+            year += 2000 if year < 100 else 0
+            try:
+                d = dt.date(year, int(m.group(2)), int(m.group(3)))
+            except ValueError:
+                return m.group(0)
+            return "%s %s %d%s" % (m.group(1), cls.MONTHS[d.month - 1], d.day,
+                                   ", %d" % year if year != dt.date.today().year else "")
+        return cls.DATE.sub(say, str(text))
+
     @staticmethod
-    def summarize(excerpt: str) -> str:
-        """First sentence or two of a notice: no footer, list lead-in or agency headline."""
+    def norm(text: str) -> str:
+        return re.sub(r"[\W_]+", "", str(text).lower())
+
+    @staticmethod
+    def summarize(excerpt: str, skip: Optional[str] = None) -> str:
+        """First sentence or two of a notice: no footer, list lead-in or agency headline,
+        and not a sentence that only repeats the subject (`skip`)."""
         s = " ".join(str(excerpt).replace("\ufffc", " ").split())
         s = re.split(r"(?i)click the following link|unsubscribe|message sent via |view this (?:message|email) in", s)[0]
-        s = re.sub(r"(?i)^[\w .'-]{0,30}?\balert\s*[:-]\s*", "", s)           # "SMC Alert: " / "SMC Alert - "
+        s = re.sub(r"(?i)^.{0,240}?\bpowered by everbridge,? inc\.?\s*", "", s)  # "<Agency> is ... powered by Everbridge, Inc."
+        s = re.sub(r"(?i)^[\w .'-]{0,30}?\balert[a-z]{0,4}\s*[:-]\s*", "", s)  # "SMC Alert: " / "SMC Alert - " / "ALERTSF: "
         s = re.sub(r"^.{0,80}?\b[A-Z][A-Z /&]{3,}\s+[-–]\s+", "", s)          # "<Agency> ROAD CLOSURE - "
+        norm = MailWatch.norm
+        sentences = [x for x in re.split(r"(?<=[.!?])\s+", s.strip()) if not skip or norm(x) != norm(skip)]
         out = ""
-        for sentence in re.split(r"(?<=[.!?])\s+", s.strip())[:2]:
+        for sentence in sentences[:2]:
             if out and len(out) + len(sentence) > 240:
                 break
             out = (out + " " + sentence).strip()
@@ -495,9 +523,15 @@ class MailWatch(OptIn):
             kind += "_urgent"
         # dedupe: one announcement per cooldown for the whole rule (e.g. several UPS emails a morning)
         device = rule.get("name", "mail") if rule.get("dedupe") else str(msg.get("id", subject))[:80]
+        clean = self.clean_subject(subject, rule.get("subject_strip"))
+        detail = self.summarize(excerpt, skip=clean) if rule.get("summary", True) else ""
+        # a bare subject ("Flood Advisory", or only the system's name): the body's opening sentence says it in full
+        lead = re.split(r"(?<=[.!?])\s+", detail, 1)[0]
+        if lead and (not self.norm(clean) or self.norm(lead).startswith(self.norm(clean))):
+            clean = lead.rstrip(".")
+            detail = self.summarize(excerpt, skip=clean)
         ev = {"kind": kind, "device": device, "source": rule.get("name", ""),
-              "subject": self.clean_subject(subject, rule.get("subject_strip")),
-              "detail": self.summarize(excerpt) if rule.get("summary", True) else ""}
+              "subject": self.spoken_dates(clean), "detail": self.spoken_dates(detail)}
         m = self.WINDOW.search(excerpt)
         ev["window"] = (", between %s and %s" % (m.group(1).upper().replace(".", ""), m.group(2).upper().replace(".", ""))
                         if m else "")

@@ -170,6 +170,52 @@ class MailTextTests(unittest.TestCase):
         long = "Word " * 80 + "end."
         self.assertTrue(summ(long).endswith("…") and len(summ(long)) <= 241)
 
+    ALERTSF = ("AlertSF is owned and operated by the City and County of San Francisco and powered by Everbridge, Inc.\n"
+               "ALERTSF: Flood Advisory in effect until 11/20. Heavy rain and strong winds may cause urban flooding, "
+               "debris, mudslides in steep areas, road closures, fallen/downed trees, and power outages. Avoid "
+               "unnecessary travel, secure outdoor items, and report flooding to 311.\n\nFor more information on "
+               "current emergencies in San Francisco visit sf.gov/readysf\n\nClick here for more information on this "
+               "alert.\nTo stop receiving future email notifications from this organization unsubscribe here.")
+
+    def test_everbridge_boilerplate_and_subject_repeat(self):
+        summ = outside.MailWatch.summarize
+        self.assertEqual(summ(self.ALERTSF), "Flood Advisory in effect until 11/20. Heavy rain and strong winds may "
+                         "cause urban flooding, debris, mudslides in steep areas, road closures, fallen/downed trees, "
+                         "and power outages.")
+        # the subject is the first line of the body: skip it rather than say it twice
+        self.assertEqual(summ(self.ALERTSF, skip="Flood advisory in effect until 11/20"),
+                         "Heavy rain and strong winds may cause urban flooding, debris, mudslides in steep areas, road "
+                         "closures, fallen/downed trees, and power outages. Avoid unnecessary travel, secure outdoor "
+                         "items, and report flooding to 311.")
+
+    def test_spoken_dates(self):
+        say = outside.MailWatch.spoken_dates
+        year = dt.date.today().year
+        self.assertEqual(say("Flood Advisory in effect until 11/20."), "Flood Advisory in effect until November 20.")
+        self.assertEqual(say("Closed from 1/5/%d through 01/09" % year), "Closed from January 5 through January 9")
+        self.assertEqual(say("Open again on 3/2/%d" % (year + 1)), "Open again on March 2, %d" % (year + 1))
+        self.assertEqual(say("Up to 1/2 inch of rain; by 1/2 inch"), "Up to 1/2 inch of rain; by 1/2 inch")
+        self.assertEqual(say("until 2/30 or 13/4"), "until 2/30 or 13/4")
+
+    def test_alertsf_event(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        outside.MailWatch.CONTEXT = Path(tmp.name) / "context.json"
+        outside.MailWatch.WATCH = Path(tmp.name) / "mail-watch.json"
+        f = outside.MailWatch({"rules": [{"name": "San Francisco", "sender": "noreply@sf.gov", "kind": "city_alert",
+                                          "subject_strip": r"^(?:alert ?sf\s*[:-]\s*)",
+                                          "urgent_words": ["evacuat"]}]}, HOME)
+        ev = f.event_for(f.rules[0], {"id": "x", "sender": "AlertSF <noreply@sf.gov>",
+                                      "subject": "ALERTSF: Flood Advisory in effect until 11/20", "excerpt": self.ALERTSF})
+        self.assertEqual(ev["kind"], "city_alert")
+        self.assertEqual(ev["subject"], "Flood Advisory in effect until November 20")
+        self.assertTrue(ev["detail"].startswith("Heavy rain and strong winds"))
+        # a bare subject (or only the system's name): the body's opening sentence becomes the subject
+        for subject in ("Flood Advisory", "AlertSF:", ""):
+            ev = f.event_for(f.rules[0], {"id": "x", "subject": subject, "excerpt": self.ALERTSF})
+            self.assertEqual(ev["subject"], "Flood Advisory in effect until November 20", subject)
+            self.assertTrue(ev["detail"].startswith("Heavy rain and strong winds"), subject)
+
 
 class EmergencyRuleTests(unittest.TestCase):
     def test_event_filters(self):

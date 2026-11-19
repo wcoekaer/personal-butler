@@ -429,7 +429,10 @@ class MailWatch(OptIn):
     (which only reads the senders listed in ~/Library/Caches/jarvis/mail-watch.json).
 
     Each rule: {name, sender (substring), subject (regex, optional), kind,
-    urgent_words (regex alternatives that switch kind to <kind>_urgent)}."""
+    urgent_words (regex alternatives that switch kind to <kind>_urgent)}.
+
+    A message first seen more than `announce_within_minutes` (60) after Mail received it
+    (Mail or the helper stalled) is not announced unless urgent; briefings still list it."""
 
     name = "mail_watch"
     CONTEXT = Path(os.path.expanduser("~/Library/Caches/jarvis/context.json"))
@@ -495,16 +498,45 @@ class MailWatch(OptIn):
         return re.sub(r"[\W_]+", "", str(text).lower())
 
     @staticmethod
+    def repeats(sentence: str, subject: str) -> bool:
+        """The sentence only says the subject again: the same words, a few of them, or all of
+        them plus at most two more ("Road Closure Notice \u2013 Industrial Road, San Carlos" for
+        "Road Closure Industrial Road, San Carlos")."""
+        if MailWatch.norm(sentence) == MailWatch.norm(subject):
+            return True
+        said, subj = set(re.findall(r"\w+", sentence.lower())), set(re.findall(r"\w+", subject.lower()))
+        if not said or len(subj) < 3:
+            return False
+        return said <= subj or (subj <= said and len(said - subj) <= 2)
+
+    @staticmethod
+    def join_lines(text: str) -> str:
+        """The message on one line. A headline line ("Road Closure Notice \u2013 Industrial Road, San
+        Carlos") gets a full stop instead of running into the next line's sentence: it is short,
+        has no closing punctuation, ends on a capitalised word or a number, and the next line
+        starts with one. A sentence wrapped across lines ends on a lowercase word: kept joined."""
+        lines = [" ".join(l.split()) for l in str(text).replace("\ufffc", " ").splitlines()]
+        lines = [l for l in lines if l]
+        out = []
+        for i, line in enumerate(lines):
+            nxt = re.sub(r"^\W+", "", lines[i + 1])[:1] if i + 1 < len(lines) else ""
+            last = re.sub(r"\W+$", "", line).rsplit(" ", 1)[-1][:1]
+            if (len(line) <= 100 and not re.search(r"[.!?:;,\-\u2013\u2014]$", line)
+                    and (last.isupper() or last.isdigit()) and (nxt.isupper() or nxt.isdigit())):
+                line += "."
+            out.append(line)
+        return " ".join(out)
+
+    @staticmethod
     def summarize(excerpt: str, skip: Optional[str] = None) -> str:
         """First sentence or two of a notice: no footer, list lead-in or agency headline,
         and not a sentence that only repeats the subject (`skip`)."""
-        s = " ".join(str(excerpt).replace("\ufffc", " ").split())
+        s = MailWatch.join_lines(excerpt)
         s = re.split(r"(?i)click the following link|unsubscribe|message sent via |view this (?:message|email) in", s)[0]
         s = re.sub(r"(?i)^.{0,240}?\bpowered by everbridge,? inc\.?\s*", "", s)  # "<Agency> is ... powered by Everbridge, Inc."
         s = re.sub(r"(?i)^[\w .'-]{0,30}?\balert[a-z]{0,4}\s*[:-]\s*", "", s)  # "SMC Alert: " / "SMC Alert - " / "ALERTSF: "
         s = re.sub(r"^.{0,80}?\b[A-Z][A-Z /&]{3,}\s+[-–]\s+", "", s)          # "<Agency> ROAD CLOSURE - "
-        norm = MailWatch.norm
-        sentences = [x for x in re.split(r"(?<=[.!?])\s+", s.strip()) if not skip or norm(x) != norm(skip)]
+        sentences = [x for x in re.split(r"(?<=[.!?])\s+", s.strip()) if not skip or not MailWatch.repeats(x, skip)]
         out = ""
         for sentence in sentences[:2]:
             if out and len(out) + len(sentence) > 240:
@@ -516,7 +548,8 @@ class MailWatch(OptIn):
 
     def event_for(self, rule: dict, msg: dict) -> dict:
         subject = " ".join(str(msg.get("subject", "")).split())
-        excerpt = " ".join(str(msg.get("excerpt", "")).split())
+        raw = str(msg.get("excerpt", ""))                   # line breaks kept: they mark headlines
+        excerpt = " ".join(raw.split())
         kind = rule.get("kind", "mail_notice")
         words = rule.get("urgent_words") or []
         if words and re.search("|".join(words), subject + " " + excerpt, re.I):
@@ -524,12 +557,12 @@ class MailWatch(OptIn):
         # dedupe: one announcement per cooldown for the whole rule (e.g. several UPS emails a morning)
         device = rule.get("name", "mail") if rule.get("dedupe") else str(msg.get("id", subject))[:80]
         clean = self.clean_subject(subject, rule.get("subject_strip"))
-        detail = self.summarize(excerpt, skip=clean) if rule.get("summary", True) else ""
+        detail = self.summarize(raw, skip=clean) if rule.get("summary", True) else ""
         # a bare subject ("Flood Advisory", or only the system's name): the body's opening sentence says it in full
         lead = re.split(r"(?<=[.!?])\s+", detail, 1)[0]
         if lead and (not self.norm(clean) or self.norm(lead).startswith(self.norm(clean))):
             clean = lead.rstrip(".")
-            detail = self.summarize(excerpt, skip=clean)
+            detail = self.summarize(raw, skip=clean)
         ev = {"kind": kind, "device": device, "source": rule.get("name", ""),
               "subject": self.spoken_dates(clean), "detail": self.spoken_dates(detail)}
         m = self.WINDOW.search(excerpt)
@@ -545,6 +578,7 @@ class MailWatch(OptIn):
         if "mail_watch" not in snap:
             raise RuntimeError("context snapshot has no mail_watch (Mail closed, or helper not updated)")
         seen = self.state.setdefault("seen", {})
+        late = 60 * float(self.cfg.get("announce_within_minutes", 60))
         for msg in snap.get("mail_watch") or []:
             mid = str(msg.get("id") or "")
             if not mid or mid in seen:
@@ -553,10 +587,27 @@ class MailWatch(OptIn):
             # unmatched messages: remember only the id, nothing about the message itself
             seen[mid] = ({"at": time.time(), "subject": msg.get("subject", ""), "received": msg.get("received"),
                           "source": rule.get("name")} if rule else {"at": time.time(), "source": None})
-            if rule:
-                self.emit(self.event_for(rule, msg))
+            if not rule:
+                continue
+            ev = self.event_for(rule, msg)
+            age = self.age(msg)
+            if age is not None and age > late and not ev["kind"].endswith("_urgent"):
+                if self.primed:      # old news by now: the briefing lists it (lines), nothing is announced
+                    feeds.log.info("mail_watch: %s message received %s seen %d minutes later; briefing only",
+                                   rule.get("name", ""), msg.get("received"), age // 60)
+                continue
+            self.emit(ev)
         cut = time.time() - 10 * 86400
         self.state["seen"] = {k: v for k, v in seen.items() if v["at"] >= cut}
+
+    @staticmethod
+    def age(msg: dict, now: Optional[float] = None) -> Optional[float]:
+        """Seconds since Mail received the message (date received: local time, no zone); None if unknown."""
+        try:
+            received = dt.datetime.fromisoformat(str(msg.get("received") or ""))
+        except ValueError:
+            return None
+        return (time.time() if now is None else now) - received.timestamp()
 
     def lines(self, now):
         out = []

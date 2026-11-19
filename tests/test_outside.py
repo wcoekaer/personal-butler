@@ -156,6 +156,28 @@ class MailWatchTests(unittest.TestCase):
         self.assertEqual(ev[2]["device"], "UPS")
         self.assertEqual(self.snap([{"id": "1", "sender": "alerts@county.example", "subject": "Road closure"}]), ev)
 
+    def test_a_late_message_goes_to_the_briefing_only(self):
+        """Mail stalled for hours on Nov 18: six alerts were announced together, late. A message
+        first seen more than `announce_within_minutes` after Mail received it is listed in
+        briefings only, unless it is urgent."""
+        now = dt.datetime.now().replace(microsecond=0)
+
+        def received(minutes_ago):          # Mail's date received: local time, no zone
+            return (now - dt.timedelta(minutes=minutes_ago)).isoformat()
+
+        ev = self.snap([
+            {"id": "1", "sender": "alerts@county.example", "subject": "Road closure on Main St", "received": received(5)},
+            {"id": "2", "sender": "alerts@county.example", "subject": "Road closure on Elm St", "received": received(240)},
+            {"id": "3", "sender": "alerts@county.example", "subject": "Evacuation order: zone 12", "received": received(240)},
+            {"id": "4", "sender": "alerts@county.example", "subject": "Road closure on Oak St"}])      # no time: announced
+        self.assertEqual([e["subject"] for e in ev],
+                         ["Road closure on Main St", "Evacuation order: zone 12", "Road closure on Oak St"])
+        self.assertIn("- County email: Road closure on Elm St", self.f.lines(now))
+        self.f.cfg["announce_within_minutes"] = 300
+        self.snap([{"id": "5", "sender": "alerts@county.example", "subject": "Road closure on Pine St",
+                    "received": received(240)}])
+        self.assertEqual(ev[-1]["subject"], "Road closure on Pine St")
+
 
 class MailTextTests(unittest.TestCase):
     def test_subject_and_summary_cleanup(self):
@@ -215,6 +237,46 @@ class MailTextTests(unittest.TestCase):
             ev = f.event_for(f.rules[0], {"id": "x", "subject": subject, "excerpt": self.ALERTSF})
             self.assertEqual(ev["subject"], "Flood Advisory in effect until November 20", subject)
             self.assertTrue(ev["detail"].startswith("Heavy rain and strong winds"), subject)
+
+    # San Mateo County (Rave): a headline line, then the notice (as Mail renders the message).
+    SMC_CLOSED = ("\nSMC Alert:\nRoad Closure Notice – Industrial Road, San Carlos\nDue to flooding, Industrial Road is "
+                  "closed between Harbor Boulevard and Quarry Road until further notice.\nPlease avoid the affected area "
+                  "and use alternate routes. Allow extra travel time and follow posted detour signs.\nThank you for your "
+                  "patience and cooperation.\n\n￼\n\xa0 \n\xa0\nClick the following link to unsubscribe.")
+    SMC_OPEN = ("\nSMC Alert:\nRoad Reopening Notice – Industrial Road, San Carlos\nIndustrial Road has been reopened "
+                "between Harbor Boulevard and Quarry Road.\nThank you for your patience and cooperation.\n\n￼\n"
+                "Click the following link to unsubscribe.")
+
+    def test_headline_line_is_not_glued_to_the_notice(self):
+        """Regression: spoken as "Road Closure Industrial Road, San Carlos. Road Closure Notice – Industrial
+        Road, San Carlos Due to flooding, ..." (the headline ran into the next line's sentence)."""
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        outside.MailWatch.CONTEXT = Path(tmp.name) / "context.json"
+        outside.MailWatch.WATCH = Path(tmp.name) / "mail-watch.json"
+        f = outside.MailWatch({"rules": [{"name": "SMC Alert", "sender": "smc.example", "kind": "county_alert",
+                                          "subject_strip": r"^(?:smc alert:\s*|\d{4}_)"}]}, HOME)
+        ev = f.event_for(f.rules[0], {"id": "a", "subject": "Road Closure Industrial Road, San Carlos",
+                                      "excerpt": self.SMC_CLOSED})
+        self.assertEqual(ev["subject"], "Road Closure Industrial Road, San Carlos")
+        self.assertEqual(ev["detail"], "Due to flooding, Industrial Road is closed between Harbor Boulevard and Quarry "
+                                       "Road until further notice. Please avoid the affected area and use alternate routes.")
+        ev = f.event_for(f.rules[0], {"id": "b", "subject": "Road Reopening Notice – Industrial Road, San Carlos",
+                                      "excerpt": self.SMC_OPEN})
+        self.assertEqual(ev["subject"], "Road Reopening Notice – Industrial Road, San Carlos")
+        self.assertEqual(ev["detail"], "Industrial Road has been reopened between Harbor Boulevard and Quarry Road. "
+                                       "Thank you for your patience and cooperation.")
+        # no subject: the headline becomes the subject
+        ev = f.event_for(f.rules[0], {"id": "c", "subject": "SMC Alert:", "excerpt": self.SMC_CLOSED})
+        self.assertEqual(ev["subject"], "Road Closure Notice – Industrial Road, San Carlos")
+        self.assertTrue(ev["detail"].startswith("Due to flooding, Industrial Road is closed"))
+
+    def test_a_wrapped_sentence_stays_one_sentence(self):
+        summ = outside.MailWatch.summarize
+        self.assertEqual(summ("The road is closed between Harbor Boulevard and\nQuarry Road until further notice."),
+                         "The road is closed between Harbor Boulevard and Quarry Road until further notice.")
+        self.assertEqual(summ("Crews expect to reopen the road by\nTuesday. Drive safely."),
+                         "Crews expect to reopen the road by Tuesday. Drive safely.")
 
 
 class EmergencyRuleTests(unittest.TestCase):

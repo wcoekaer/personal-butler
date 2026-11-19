@@ -258,6 +258,7 @@ watchdog:
     - {name: Airspace server, spoken: the airspace server, health: airspace, quiet_minutes: 15}
     # - {name: ADS-B receiver, spoken: the ADS-B receiver, airspace_sensor: <sensor id>, quiet_minutes: 30}
     # - {name: RF scanner, spoken: the RF scanner box, scanner: rf, quiet_minutes: 10}
+    # - {name: Mail watch, spoken: the mail watch, health: mail_watch, quiet_minutes: 20}   # with feeds.mail_watch
 
 # Tesla vehicle checks (vehicles.py) on the teslaapi/vehicle_data_* payloads in mqtt.topics.
 vehicles:
@@ -301,6 +302,7 @@ feeds:
   # mail_watch:                # inbox messages from chosen senders (JarvisContext helper; Mail must be running)
   #   poll_seconds: 60
   #   days: 3
+  #   announce_within_minutes: 60  # a message first seen later than this (Mail stalled) is briefing-only, unless urgent
   #   rules:
   #     - {name: County alerts, sender: alerts@example.gov, kind: county_alert, urgent_words: [evacuat, "shelter[ -]in[ -]place"]}
   #     - {name: UPS, sender: mcinfo@ups.com, subject: "Scheduled for Delivery Today", kind: package_today, dedupe: true}

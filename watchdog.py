@@ -119,6 +119,8 @@ class SourceWatchdog:
             if fresh is None:
                 continue
             age = max(0.0, now - fresh)
+            # Never seen at all (0): silent since Jarvis started watching, not since 1970.
+            silent_since = fresh if fresh > 0 else self.started
             st = self.state.setdefault(s["name"], {})
             if s["kind"] != "health" and self.journal:
                 warming = now - self.started < self.grace_s
@@ -128,8 +130,8 @@ class SourceWatchdog:
             if now - self.started < self.grace_s:
                 continue
             if not st.get("down") and age > s["quiet_s"]:
-                st.update(down=True, since=fresh)
-                went_down.append((s, age))
+                st.update(down=True, since=silent_since)
+                went_down.append((s, max(0.0, now - silent_since)))
             elif st.get("down") and age <= s["quiet_s"] / 2:
                 outage = now - (st.get("since") or now)
                 st.update(down=False, since=None)

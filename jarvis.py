@@ -541,7 +541,15 @@ class MqttState:
                 # e.g. a sleeping car: keep its last real data, note the status separately
                 self.values[status_key] = (payload, dt.datetime.fromtimestamp(observed))
             else:
-                self.values[msg.topic] = (payload, dt.datetime.fromtimestamp(observed))
+                seen = dt.datetime.fromtimestamp(observed)
+                held = self.values.get(msg.topic)
+                if observed <= 0 and held is not None:
+                    # Unknown age: a retained message the broker replays on every new
+                    # subscription (hourly discovery window, reconnect). It is the message
+                    # already held or a later one, so it is at least as recent as that:
+                    # take its value, never move the topic's time back to "unknown".
+                    seen = held[1]
+                self.values[msg.topic] = (payload, seen)
                 if not is_error:
                     self.values.pop(status_key, None)
         self._save()

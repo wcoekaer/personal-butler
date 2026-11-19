@@ -191,7 +191,9 @@ pattern>` (home broker), `scanner: rf|rid|wifi|rc900|any`, `airspace_sensor: <se
 with `quiet_minutes`. Jarvis says when a source goes quiet and when it is back, once per
 outage; sources that go quiet together are named in one sentence. A source whose connection
 is itself down (broker disconnected, airspace API failing) isn't judged, so a broken link is
-one alert. Quiet sources also show on the HUD and are listed in the next briefing.
+one alert. Quiet sources also show on the HUD and are listed in the next briefing. A retained
+message the broker sends again (after a reconnect, or the hourly discovery window) counts as
+neither new data nor silence: the source keeps the time it was last heard live.
 
 ### Vehicles
 
